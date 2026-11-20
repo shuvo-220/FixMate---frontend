@@ -1481,6 +1481,7 @@ function AddService() {
 }
 
 
+
 function MyBookings() {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1489,6 +1490,10 @@ function MyBookings() {
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  const [completionBooking, setCompletionBooking] = useState(null);
+  const [finalAmount, setFinalAmount] = useState("");
+  const [completing, setCompleting] = useState(false);
 
   const getAuthToken = async () => {
     const { data, error } = await authClient.token();
@@ -1542,15 +1547,17 @@ function MyBookings() {
   }, []);
 
   // Update booking status
-  const handleStatusUpdate = async (booking, newStatus) => {
+  const handleStatusUpdate = async (booking, newStatus, amount = null) => {
     const confirmMessage = {
       accepted: "Are you sure you want to accept this booking?",
       rejected: "Are you sure you want to reject this booking?",
-      "in progress": "Start working on this repair?",
-      completed: "Are you sure this repair job is completed?",
+      "in-progress": "Start working on this repair?",
     };
 
-    if (!window.confirm(confirmMessage[newStatus])) {
+    if (
+      newStatus !== "completed" &&
+      !window.confirm(confirmMessage[newStatus])
+    ) {
       return;
     }
 
@@ -1559,9 +1566,18 @@ function MyBookings() {
 
       const headers = await getHeaders();
 
+      const payload = {
+        status: newStatus,
+      };
+
+      // Final amount is required when completing a booking
+      if (newStatus === "completed") {
+        payload.finalAmount = Number(amount);
+      }
+
       const response = await api.patch(
         `/api/bookings/${booking._id}/status`,
-        { status: newStatus },
+        payload,
         { headers }
       );
 
@@ -1575,6 +1591,9 @@ function MyBookings() {
         response.data.message || "Booking status updated successfully!"
       );
 
+      setCompletionBooking(null);
+      setFinalAmount("");
+
       await fetchBookings(true);
     } catch (error) {
       console.error("Update Booking Error:", error);
@@ -1586,7 +1605,38 @@ function MyBookings() {
       );
     } finally {
       setUpdatingId(null);
+      setCompleting(false);
     }
+  };
+
+  // Open completion modal
+  const openCompletionModal = (booking) => {
+    setCompletionBooking(booking);
+    setFinalAmount(
+      booking.finalAmount != null ? String(booking.finalAmount) : ""
+    );
+  };
+
+  // Submit completed booking
+  const handleCompleteBooking = async (e) => {
+    e.preventDefault();
+
+    if (
+      finalAmount.trim() === "" ||
+      !Number.isFinite(Number(finalAmount)) ||
+      Number(finalAmount) < 0
+    ) {
+      toast.error("Please enter a valid final amount.");
+      return;
+    }
+
+    setCompleting(true);
+
+    await handleStatusUpdate(
+      completionBooking,
+      "completed",
+      finalAmount
+    );
   };
 
   // Status badge styles
@@ -1595,7 +1645,7 @@ function MyBookings() {
       case "accepted":
         return "bg-blue-100 text-blue-700";
 
-      case "in progress":
+      case "in-progress":
         return "bg-purple-100 text-purple-700";
 
       case "completed":
@@ -1610,6 +1660,16 @@ function MyBookings() {
       default:
         return "bg-amber-100 text-amber-700";
     }
+  };
+
+  // Format status for display
+  const formatStatus = (status) => {
+    if (!status) return "Requested";
+
+    return status
+      .split("-")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
   };
 
   // Format date
@@ -1649,19 +1709,19 @@ function MyBookings() {
   });
 
   const requestedCount = bookings.filter(
-    (booking) => booking.status?.toLowerCase() === "requested"
+    (booking) => booking.status === "requested"
   ).length;
 
   const acceptedCount = bookings.filter(
-    (booking) => booking.status?.toLowerCase() === "accepted"
+    (booking) => booking.status === "accepted"
   ).length;
 
   const progressCount = bookings.filter(
-    (booking) => booking.status?.toLowerCase() === "in progress"
+    (booking) => booking.status === "in-progress"
   ).length;
 
   const completedCount = bookings.filter(
-    (booking) => booking.status?.toLowerCase() === "completed"
+    (booking) => booking.status === "completed"
   ).length;
 
   if (loading) {
@@ -1750,7 +1810,7 @@ function MyBookings() {
             <option value="all">All Bookings</option>
             <option value="requested">Requested</option>
             <option value="accepted">Accepted</option>
-            <option value="in progress">In Progress</option>
+            <option value="in-progress">In Progress</option>
             <option value="completed">Completed</option>
             <option value="rejected">Rejected</option>
             <option value="cancelled">Cancelled</option>
@@ -1815,11 +1875,9 @@ function MyBookings() {
                   </div>
 
                   <span
-                    className={`w-fit rounded-full px-3 py-1.5 text-xs font-semibold capitalize ${getStatusStyle(
-                      status
-                    )}`}
+                    className={`w-fit rounded-full px-3 py-1.5 text-xs font-semibold ${getStatusStyle(status)}`}
                   >
-                    {status || "requested"}
+                    {formatStatus(status)}
                   </span>
                 </div>
 
@@ -1881,10 +1939,7 @@ function MyBookings() {
                       <div>
                         <p className="text-xs text-slate-400">Base Price</p>
                         <p className="mt-1 font-bold text-slate-900">
-                          ৳
-                          {Number(booking.basePrice || 0).toLocaleString(
-                            "en-BD"
-                          )}
+                          ৳{Number(booking.basePrice || 0).toLocaleString("en-BD")}
                         </p>
                       </div>
 
@@ -1901,10 +1956,7 @@ function MyBookings() {
                             Final Amount
                           </p>
                           <p className="mt-1 font-bold text-green-700">
-                            ৳
-                            {Number(booking.finalAmount).toLocaleString(
-                              "en-BD"
-                            )}
+                            ৳{Number(booking.finalAmount).toLocaleString("en-BD")}
                           </p>
                         </div>
                       )}
@@ -1928,8 +1980,8 @@ function MyBookings() {
                 <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/70 p-5 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-xs text-slate-500">
                     Booking Status:{" "}
-                    <span className="font-semibold capitalize text-slate-700">
-                      {status}
+                    <span className="font-semibold text-slate-700">
+                      {formatStatus(status)}
                     </span>
                   </p>
 
@@ -1937,9 +1989,7 @@ function MyBookings() {
                     {status === "requested" && (
                       <>
                         <button
-                          onClick={() =>
-                            handleStatusUpdate(booking, "accepted")
-                          }
+                          onClick={() => handleStatusUpdate(booking, "accepted")}
                           disabled={isUpdating}
                           className="rounded-lg bg-green-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-green-700 disabled:opacity-60"
                         >
@@ -1947,9 +1997,7 @@ function MyBookings() {
                         </button>
 
                         <button
-                          onClick={() =>
-                            handleStatusUpdate(booking, "rejected")
-                          }
+                          onClick={() => handleStatusUpdate(booking, "rejected")}
                           disabled={isUpdating}
                           className="rounded-lg bg-red-50 px-4 py-2.5 text-xs font-semibold text-red-600 transition hover:bg-red-100 disabled:opacity-60"
                         >
@@ -1960,9 +2008,7 @@ function MyBookings() {
 
                     {status === "accepted" && (
                       <button
-                        onClick={() =>
-                          handleStatusUpdate(booking, "in progress")
-                        }
+                        onClick={() => handleStatusUpdate(booking, "in-progress")}
                         disabled={isUpdating}
                         className="rounded-lg bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
                       >
@@ -1970,15 +2016,13 @@ function MyBookings() {
                       </button>
                     )}
 
-                    {status === "in progress" && (
+                    {status === "in-progress" && (
                       <button
-                        onClick={() =>
-                          handleStatusUpdate(booking, "completed")
-                        }
+                        onClick={() => openCompletionModal(booking)}
                         disabled={isUpdating}
                         className="rounded-lg bg-green-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-green-700 disabled:opacity-60"
                       >
-                        {isUpdating ? "Updating..." : "Mark as Completed"}
+                        Mark as Completed
                       </button>
                     )}
 
@@ -2001,9 +2045,83 @@ function MyBookings() {
           })}
         </div>
       )}
+
+      {/* Completion Modal */}
+      {completionBooking && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-green-50 text-green-600">
+              <FiCheckCircle size={27} />
+            </div>
+
+            <h2 className="mt-4 text-xl font-bold text-slate-900">
+              Complete Repair Job
+            </h2>
+
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              Enter the final repair amount for{" "}
+              <span className="font-semibold text-slate-800">
+                {completionBooking.serviceTitle}
+              </span>
+              .
+            </p>
+
+            <div className="mt-4 rounded-xl bg-slate-50 p-4">
+              <p className="text-xs text-slate-500">Base Price</p>
+              <p className="mt-1 text-lg font-bold text-slate-900">
+                ৳{Number(completionBooking.basePrice || 0).toLocaleString("en-BD")}
+              </p>
+            </div>
+
+            <form onSubmit={handleCompleteBooking}>
+              <label className="mb-2 mt-5 block text-sm font-semibold text-slate-700">
+                Final Amount (৳)
+              </label>
+
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={finalAmount}
+                onChange={(e) => setFinalAmount(e.target.value)}
+                placeholder="Enter final repair amount"
+                required
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+
+              <p className="mt-2 text-xs text-slate-400">
+                You can enter the same amount as the base price or adjust it.
+              </p>
+
+              <div className="mt-6 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCompletionBooking(null);
+                    setFinalAmount("");
+                  }}
+                  disabled={completing}
+                  className="flex-1 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={completing}
+                  className="flex-1 rounded-xl bg-green-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-green-700 disabled:opacity-60"
+                >
+                  {completing ? "Completing..." : "Confirm Complete"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
 
 
 function Profile() {

@@ -29,6 +29,19 @@ const menuItems = [
   { name: "My Profile", icon: FiUser },
 ];
 
+// Format amount in Bangladeshi Taka
+const formatBDT = (amount) => {
+  return `৳${Number(amount || 0).toLocaleString("en-BD", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })}`;
+};
+
+
+// ==============================
+// Dashboard Overview
+// ==============================
+
 function Overview({ setActiveMenu }) {
   return (
     <div>
@@ -36,6 +49,7 @@ function Overview({ setActiveMenu }) {
         <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">
           Welcome to FixMate!
         </h1>
+
         <p className="mt-2 text-slate-500">
           Manage your repair services and account from here.
         </p>
@@ -46,29 +60,44 @@ function Overview({ setActiveMenu }) {
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
             <FiCalendar size={23} />
           </div>
+
           <p className="text-sm text-slate-500">Total Bookings</p>
-          <h2 className="mt-2 text-3xl font-bold text-slate-900">--</h2>
+
+          <h2 className="mt-2 text-3xl font-bold text-slate-900">
+            --
+          </h2>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6">
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-green-100 text-green-600">
             <FiCheckCircle size={23} />
           </div>
+
           <p className="text-sm text-slate-500">Completed Services</p>
-          <h2 className="mt-2 text-3xl font-bold text-slate-900">--</h2>
+
+          <h2 className="mt-2 text-3xl font-bold text-slate-900">
+            --
+          </h2>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6">
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-orange-100 text-orange-600">
             <FiClock size={23} />
           </div>
+
           <p className="text-sm text-slate-500">Pending Bookings</p>
-          <h2 className="mt-2 text-3xl font-bold text-slate-900">--</h2>
+
+          <h2 className="mt-2 text-3xl font-bold text-slate-900">
+            --
+          </h2>
         </div>
       </div>
 
       <div className="mt-8 rounded-2xl bg-slate-900 p-7 text-white md:p-9">
-        <h2 className="text-2xl font-bold">Need a repair service?</h2>
+        <h2 className="text-2xl font-bold">
+          Need a repair service?
+        </h2>
+
         <p className="mt-3 max-w-xl text-sm leading-6 text-slate-300">
           Find trusted technicians and book reliable repair services for your
           devices and home appliances.
@@ -88,6 +117,7 @@ function Overview({ setActiveMenu }) {
             <h2 className="text-lg font-bold text-slate-900">
               Recent Bookings
             </h2>
+
             <p className="mt-1 text-sm text-slate-500">
               Your latest repair service requests.
             </p>
@@ -103,6 +133,7 @@ function Overview({ setActiveMenu }) {
 
         <div className="mt-6 rounded-xl bg-slate-50 p-8 text-center">
           <FiCalendar className="mx-auto text-3xl text-slate-400" />
+
           <p className="mt-3 text-sm text-slate-500">
             Your booking information will appear here.
           </p>
@@ -113,6 +144,10 @@ function Overview({ setActiveMenu }) {
 }
 
 
+// ==============================
+// My Bookings
+// ==============================
+
 function MyBookings() {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -120,6 +155,7 @@ function MyBookings() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [cancelling, setCancelling] = useState(false);
+  const [payingId, setPayingId] = useState(null);
 
   const getToken = async () => {
     const { data, error } = await authClient.token();
@@ -159,6 +195,7 @@ function MyBookings() {
     fetchBookings();
   }, []);
 
+  // Cancel Booking
   const handleCancelBooking = async () => {
     if (!selectedBooking) return;
 
@@ -167,10 +204,8 @@ function MyBookings() {
 
       const token = await getToken();
 
-      const bookingId = selectedBooking._id;
-
       const response = await api.patch(
-        `/api/bookings/${bookingId}/cancel`,
+        `/api/bookings/${selectedBooking._id}/cancel`,
         {},
         {
           headers: {
@@ -197,20 +232,65 @@ function MyBookings() {
     }
   };
 
+  // Stripe Payment
+  const handlePayNow = async (booking) => {
+    try {
+      setPayingId(booking._id);
+
+      const token = await getToken();
+
+      const response = await api.post(
+        "/api/payments/create-checkout-session",
+        {
+          bookingId: booking._id,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const checkoutUrl = response.data.checkoutUrl;
+
+      if (!checkoutUrl) {
+        throw new Error("Stripe checkout URL not found!");
+      }
+
+      window.location.href = checkoutUrl;
+    } catch (error) {
+      console.error("Payment Error:", error);
+
+      toast.error(
+        error.response?.data?.message ||
+          error.message ||
+          "Unable to start payment!"
+      );
+
+      setPayingId(null);
+    }
+  };
+
   const getStatusStyle = (status) => {
     const styles = {
       requested: "bg-blue-100 text-blue-700",
       accepted: "bg-indigo-100 text-indigo-700",
-      "in progress": "bg-amber-100 text-amber-700",
+      "in-progress": "bg-amber-100 text-amber-700",
       completed: "bg-emerald-100 text-emerald-700",
       rejected: "bg-red-100 text-red-700",
       cancelled: "bg-slate-100 text-slate-600",
     };
 
-    return (
-      styles[status?.toLowerCase()] ||
-      "bg-slate-100 text-slate-600"
-    );
+    return styles[status?.toLowerCase()] || "bg-slate-100 text-slate-600";
+  };
+
+  const formatStatus = (status) => {
+    if (!status) return "Unknown";
+
+    return status
+      .split("-")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
   };
 
   const formatDate = (date) => {
@@ -275,6 +355,7 @@ function MyBookings() {
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <p className="text-sm text-slate-500">Total Bookings</p>
+
           <h2 className="mt-2 text-3xl font-bold text-slate-900">
             {bookings.length}
           </h2>
@@ -282,28 +363,37 @@ function MyBookings() {
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <p className="text-sm text-slate-500">Requested</p>
+
           <h2 className="mt-2 text-3xl font-bold text-blue-600">
-            {bookings.filter(
-              (b) => b.status?.toLowerCase() === "requested"
-            ).length}
+            {
+              bookings.filter(
+                (b) => b.status?.toLowerCase() === "requested"
+              ).length
+            }
           </h2>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <p className="text-sm text-slate-500">In Progress</p>
+
           <h2 className="mt-2 text-3xl font-bold text-amber-600">
-            {bookings.filter(
-              (b) => b.status?.toLowerCase() === "in progress"
-            ).length}
+            {
+              bookings.filter(
+                (b) => b.status?.toLowerCase() === "in-progress"
+              ).length
+            }
           </h2>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <p className="text-sm text-slate-500">Completed</p>
+
           <h2 className="mt-2 text-3xl font-bold text-emerald-600">
-            {bookings.filter(
-              (b) => b.status?.toLowerCase() === "completed"
-            ).length}
+            {
+              bookings.filter(
+                (b) => b.status?.toLowerCase() === "completed"
+              ).length
+            }
           </h2>
         </div>
       </div>
@@ -326,7 +416,7 @@ function MyBookings() {
           <option value="all">All Bookings</option>
           <option value="requested">Requested</option>
           <option value="accepted">Accepted</option>
-          <option value="in progress">In Progress</option>
+          <option value="in-progress">In Progress</option>
           <option value="completed">Completed</option>
           <option value="rejected">Rejected</option>
           <option value="cancelled">Cancelled</option>
@@ -379,11 +469,11 @@ function MyBookings() {
                     </span>
 
                     <span
-                      className={`rounded-full px-3 py-1.5 text-xs font-semibold capitalize ${getStatusStyle(
+                      className={`rounded-full px-3 py-1.5 text-xs font-semibold ${getStatusStyle(
                         booking.status
                       )}`}
                     >
-                      {booking.status || "Unknown"}
+                      {formatStatus(booking.status)}
                     </span>
                   </div>
 
@@ -417,10 +507,10 @@ function MyBookings() {
 
                     <p>
                       <span className="font-semibold text-slate-800">
-                        Amount:
+                        Final Amount:
                       </span>{" "}
                       {booking.finalAmount != null
-                        ? Number(booking.finalAmount).toLocaleString()
+                        ? formatBDT(booking.finalAmount)
                         : "Not finalized"}
                     </p>
                   </div>
@@ -448,14 +538,41 @@ function MyBookings() {
                       Booking ID: {booking._id}
                     </p>
 
-                    {booking.status?.toLowerCase() === "requested" && (
-                      <button
-                        onClick={() => setSelectedBooking(booking)}
-                        className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50"
-                      >
-                        Cancel Booking
-                      </button>
-                    )}
+                    <div className="flex flex-wrap gap-2">
+                      {/* Pay Now */}
+                      {booking.status?.toLowerCase() === "completed" &&
+                        booking.paymentStatus?.toLowerCase() !== "paid" && (
+                          <button
+                            onClick={() => handlePayNow(booking)}
+                            disabled={payingId === booking._id}
+                            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <FiCreditCard size={16} />
+
+                            {payingId === booking._id
+                              ? "Redirecting..."
+                              : "Pay Now"}
+                          </button>
+                        )}
+
+                      {/* Paid Status */}
+                      {booking.paymentStatus?.toLowerCase() === "paid" && (
+                        <span className="inline-flex items-center gap-2 rounded-lg bg-green-100 px-4 py-2.5 text-sm font-semibold text-green-700">
+                          <FiCheckCircle size={16} />
+                          Payment Completed
+                        </span>
+                      )}
+
+                      {/* Cancel Booking */}
+                      {booking.status?.toLowerCase() === "requested" && (
+                        <button
+                          onClick={() => setSelectedBooking(booking)}
+                          className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+                        >
+                          Cancel Booking
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -509,6 +626,9 @@ function MyBookings() {
 }
 
 
+// ==============================
+// Payment History
+// ==============================
 
 function Payments() {
   const [payments, setPayments] = useState([]);
@@ -565,15 +685,6 @@ function Payments() {
       month: "short",
       year: "numeric",
     });
-  };
-
-  const formatAmount = (amount, currency) => {
-    const value = Number(amount || 0);
-
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: (currency || "USD").toUpperCase(),
-    }).format(value);
   };
 
   const filteredPayments = payments.filter((payment) => {
@@ -639,7 +750,7 @@ function Payments() {
           <p className="text-sm text-slate-500">Total Amount Paid</p>
 
           <h2 className="mt-2 text-3xl font-bold text-slate-900">
-            {formatAmount(totalPaid, "USD")}
+            {formatBDT(totalPaid)}
           </h2>
         </div>
       </div>
@@ -698,7 +809,7 @@ function Payments() {
 
                 <div className="sm:text-right">
                   <h3 className="text-xl font-bold text-slate-900">
-                    {formatAmount(payment.amount, payment.currency)}
+                    {formatBDT(payment.amount)}
                   </h3>
 
                   <span className="mt-2 inline-block rounded-full bg-green-100 px-3 py-1 text-xs font-semibold capitalize text-green-700">
@@ -709,7 +820,9 @@ function Payments() {
 
               <div className="mt-5 grid gap-3 border-t border-slate-100 pt-4 text-sm sm:grid-cols-2">
                 <div>
-                  <p className="text-xs text-slate-400">Transaction ID</p>
+                  <p className="text-xs text-slate-400">
+                    Transaction ID
+                  </p>
 
                   <p className="mt-1 break-all font-medium text-slate-700">
                     {payment.transactionId || "N/A"}
@@ -717,7 +830,9 @@ function Payments() {
                 </div>
 
                 <div>
-                  <p className="text-xs text-slate-400">Booking ID</p>
+                  <p className="text-xs text-slate-400">
+                    Booking ID
+                  </p>
 
                   <p className="mt-1 break-all font-medium text-slate-700">
                     {payment.bookingId || "N/A"}
@@ -733,6 +848,9 @@ function Payments() {
 }
 
 
+// ==============================
+// My Profile
+// ==============================
 
 function Profile() {
   const [profile, setProfile] = useState({
@@ -902,7 +1020,9 @@ function Profile() {
       console.error("Update Profile Error:", error);
 
       toast.error(
-        error.response?.data?.message || error.message || "Failed to update profile!"
+        error.response?.data?.message ||
+          error.message ||
+          "Failed to update profile!"
       );
     } finally {
       setSaving(false);
@@ -1121,6 +1241,10 @@ function Profile() {
 }
 
 
+// ==============================
+// Customer Dashboard Layout
+// ==============================
+
 export default function CustomerDashboard() {
   const [activeMenu, setActiveMenu] = useState("Dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -1248,7 +1372,9 @@ export default function CustomerDashboard() {
                 Customer Workspace
               </p>
 
-              <h2 className="font-bold text-slate-800">{activeMenu}</h2>
+              <h2 className="font-bold text-slate-800">
+                {activeMenu}
+              </h2>
             </div>
 
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-blue-600">
@@ -1257,7 +1383,9 @@ export default function CustomerDashboard() {
           </header>
 
           <section className="p-5 md:p-8 lg:p-10">
-            <div className="mx-auto max-w-7xl">{renderContent()}</div>
+            <div className="mx-auto max-w-7xl">
+              {renderContent()}
+            </div>
           </section>
         </main>
       </div>
