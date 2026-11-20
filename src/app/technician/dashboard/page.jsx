@@ -1480,31 +1480,531 @@ function AddService() {
   );
 }
 
+
 function MyBookings() {
-  return (
-    <div>
-      <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">
-        My Bookings
-      </h1>
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [updatingId, setUpdatingId] = useState(null);
 
-      <p className="mt-2 text-slate-500">
-        Manage customer repair requests and job status.
-      </p>
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
 
-      <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-8 text-center">
-        <FiCalendar className="mx-auto text-4xl text-slate-400" />
+  const getAuthToken = async () => {
+    const { data, error } = await authClient.token();
 
-        <h2 className="mt-4 font-semibold text-slate-800">
-          No booking information loaded
-        </h2>
+    if (error || !data?.token) {
+      throw new Error("Authentication token not found. Please login again.");
+    }
 
-        <p className="mt-2 text-sm text-slate-500">
-          Customer bookings will appear here after connecting the API.
-        </p>
+    return data.token;
+  };
+
+  const getHeaders = async () => {
+    const token = await getAuthToken();
+
+    return {
+      Authorization: `Bearer ${token}`,
+    };
+  };
+
+  // Fetch technician bookings
+  const fetchBookings = async (showRefresh = false) => {
+    try {
+      if (showRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+
+      const headers = await getHeaders();
+
+      const response = await api.get(
+        "/api/bookings/technician-bookings",
+        { headers }
+      );
+
+      setBookings(response.data.bookings || []);
+    } catch (error) {
+      console.error("Fetch Bookings Error:", error);
+
+      toast.error(
+        error.response?.data?.message || "Failed to load bookings."
+      );
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchBookings();
+  }, []);
+
+  // Update booking status
+  const handleStatusUpdate = async (booking, newStatus) => {
+    const confirmMessage = {
+      accepted: "Are you sure you want to accept this booking?",
+      rejected: "Are you sure you want to reject this booking?",
+      "in progress": "Start working on this repair?",
+      completed: "Are you sure this repair job is completed?",
+    };
+
+    if (!window.confirm(confirmMessage[newStatus])) {
+      return;
+    }
+
+    try {
+      setUpdatingId(booking._id);
+
+      const headers = await getHeaders();
+
+      const response = await api.patch(
+        `/api/bookings/${booking._id}/status`,
+        { status: newStatus },
+        { headers }
+      );
+
+      if (!response.data.success) {
+        throw new Error(
+          response.data.message || "Booking status update failed."
+        );
+      }
+
+      toast.success(
+        response.data.message || "Booking status updated successfully!"
+      );
+
+      await fetchBookings(true);
+    } catch (error) {
+      console.error("Update Booking Error:", error);
+
+      toast.error(
+        error.response?.data?.message ||
+          error.message ||
+          "Failed to update booking status."
+      );
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  // Status badge styles
+  const getStatusStyle = (status) => {
+    switch (status?.toLowerCase()) {
+      case "accepted":
+        return "bg-blue-100 text-blue-700";
+
+      case "in progress":
+        return "bg-purple-100 text-purple-700";
+
+      case "completed":
+        return "bg-green-100 text-green-700";
+
+      case "rejected":
+        return "bg-red-100 text-red-700";
+
+      case "cancelled":
+        return "bg-slate-100 text-slate-600";
+
+      default:
+        return "bg-amber-100 text-amber-700";
+    }
+  };
+
+  // Format date
+  const formatDate = (date) => {
+    if (!date) return "Not specified";
+
+    const parsedDate = new Date(date);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return date;
+    }
+
+    return parsedDate.toLocaleDateString("en-BD", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  };
+
+  // Filter bookings
+  const filteredBookings = bookings.filter((booking) => {
+    const searchText = search.toLowerCase();
+
+    const matchesSearch =
+      booking.serviceTitle?.toLowerCase().includes(searchText) ||
+      booking.customerName?.toLowerCase().includes(searchText) ||
+      booking.customerEmail?.toLowerCase().includes(searchText) ||
+      booking.customerPhone?.toLowerCase().includes(searchText) ||
+      booking.category?.toLowerCase().includes(searchText) ||
+      booking.address?.toLowerCase().includes(searchText);
+
+    const matchesStatus =
+      statusFilter === "all" ||
+      booking.status?.toLowerCase() === statusFilter;
+
+    return matchesSearch && matchesStatus;
+  });
+
+  const requestedCount = bookings.filter(
+    (booking) => booking.status?.toLowerCase() === "requested"
+  ).length;
+
+  const acceptedCount = bookings.filter(
+    (booking) => booking.status?.toLowerCase() === "accepted"
+  ).length;
+
+  const progressCount = bookings.filter(
+    (booking) => booking.status?.toLowerCase() === "in progress"
+  ).length;
+
+  const completedCount = bookings.filter(
+    (booking) => booking.status?.toLowerCase() === "completed"
+  ).length;
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center">
+        <span className="loading loading-spinner loading-lg text-blue-600"></span>
       </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">
+            My Bookings
+          </h1>
+
+          <p className="mt-2 text-sm text-slate-500">
+            Manage customer repair requests and track your job progress.
+          </p>
+        </div>
+
+        <button
+          onClick={() => fetchBookings(true)}
+          disabled={refreshing}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+        >
+          <FiRefreshCw className={refreshing ? "animate-spin" : ""} />
+          Refresh
+        </button>
+      </div>
+
+      {/* Statistics */}
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+          <p className="text-sm text-slate-500">New Requests</p>
+          <h3 className="mt-2 text-3xl font-bold text-amber-600">
+            {requestedCount}
+          </h3>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+          <p className="text-sm text-slate-500">Accepted</p>
+          <h3 className="mt-2 text-3xl font-bold text-blue-600">
+            {acceptedCount}
+          </h3>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+          <p className="text-sm text-slate-500">In Progress</p>
+          <h3 className="mt-2 text-3xl font-bold text-purple-600">
+            {progressCount}
+          </h3>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+          <p className="text-sm text-slate-500">Completed</p>
+          <h3 className="mt-2 text-3xl font-bold text-green-600">
+            {completedCount}
+          </h3>
+        </div>
+      </div>
+
+      {/* Search and Filter */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="relative">
+            <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search customer, service, phone..."
+              className="w-full rounded-xl border border-slate-200 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-blue-500"
+            />
+          </div>
+
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500"
+          >
+            <option value="all">All Bookings</option>
+            <option value="requested">Requested</option>
+            <option value="accepted">Accepted</option>
+            <option value="in progress">In Progress</option>
+            <option value="completed">Completed</option>
+            <option value="rejected">Rejected</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Booking List */}
+      {filteredBookings.length === 0 ? (
+        <div className="rounded-2xl border border-slate-200 bg-white px-5 py-16 text-center">
+          <FiCalendar className="mx-auto text-4xl text-slate-300" />
+
+          <h3 className="mt-4 text-lg font-bold text-slate-800">
+            No Bookings Found
+          </h3>
+
+          <p className="mt-2 text-sm text-slate-500">
+            {bookings.length === 0
+              ? "Customer bookings will appear here when someone books your service."
+              : "No bookings match your current search or filter."}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-5">
+          {filteredBookings.map((booking) => {
+            const status = booking.status?.toLowerCase();
+            const isUpdating = updatingId === booking._id;
+
+            return (
+              <div
+                key={booking._id}
+                className="overflow-hidden rounded-2xl border border-slate-200 bg-white transition hover:shadow-md"
+              >
+                {/* Booking Header */}
+                <div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center">
+                  <div className="flex items-center gap-4">
+                    {booking.serviceImage ? (
+                      <img
+                        src={booking.serviceImage}
+                        alt={booking.serviceTitle || "Service"}
+                        className="h-16 w-16 rounded-xl object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                        <FiTool size={25} />
+                      </div>
+                    )}
+
+                    <div>
+                      <span className="text-xs font-semibold text-blue-600">
+                        {booking.category || "Repair Service"}
+                      </span>
+
+                      <h3 className="mt-1 font-bold text-slate-900">
+                        {booking.serviceTitle || "Repair Service"}
+                      </h3>
+
+                      <p className="mt-1 text-xs text-slate-400">
+                        Booking ID: {booking._id}
+                      </p>
+                    </div>
+                  </div>
+
+                  <span
+                    className={`w-fit rounded-full px-3 py-1.5 text-xs font-semibold capitalize ${getStatusStyle(
+                      status
+                    )}`}
+                  >
+                    {status || "requested"}
+                  </span>
+                </div>
+
+                {/* Booking Details */}
+                <div className="grid gap-6 p-5 lg:grid-cols-2">
+                  {/* Customer Information */}
+                  <div>
+                    <h4 className="mb-4 font-semibold text-slate-800">
+                      Customer Information
+                    </h4>
+
+                    <div className="space-y-3 text-sm">
+                      <div>
+                        <p className="text-xs text-slate-400">Customer Name</p>
+                        <p className="mt-1 font-medium text-slate-800">
+                          {booking.customerName || "Not available"}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs text-slate-400">Email</p>
+                        <p className="mt-1 break-all font-medium text-slate-800">
+                          {booking.customerEmail || "Not available"}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs text-slate-400">Phone</p>
+                        <p className="mt-1 font-medium text-slate-800">
+                          {booking.customerPhone || "Not provided"}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs text-slate-400">Service Address</p>
+                        <p className="mt-1 font-medium leading-6 text-slate-800">
+                          {booking.address || "Not provided"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Repair Information */}
+                  <div>
+                    <h4 className="mb-4 font-semibold text-slate-800">
+                      Repair Information
+                    </h4>
+
+                    <div className="space-y-3 text-sm">
+                      <div>
+                        <p className="text-xs text-slate-400">
+                          Preferred Date
+                        </p>
+                        <p className="mt-1 font-medium text-slate-800">
+                          {formatDate(booking.preferredDate)}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs text-slate-400">Base Price</p>
+                        <p className="mt-1 font-bold text-slate-900">
+                          ৳
+                          {Number(booking.basePrice || 0).toLocaleString(
+                            "en-BD"
+                          )}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs text-slate-400">Payment Status</p>
+                        <p className="mt-1 font-semibold capitalize text-slate-800">
+                          {booking.paymentStatus || "Unpaid"}
+                        </p>
+                      </div>
+
+                      {booking.finalAmount != null && (
+                        <div>
+                          <p className="text-xs text-slate-400">
+                            Final Amount
+                          </p>
+                          <p className="mt-1 font-bold text-green-700">
+                            ৳
+                            {Number(booking.finalAmount).toLocaleString(
+                              "en-BD"
+                            )}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Problem Description */}
+                  <div className="rounded-xl bg-slate-50 p-4 lg:col-span-2">
+                    <h4 className="text-sm font-semibold text-slate-800">
+                      Customer Problem Description
+                    </h4>
+
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">
+                      {booking.problemDescription ||
+                        "No problem description provided."}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/70 p-5 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-slate-500">
+                    Booking Status:{" "}
+                    <span className="font-semibold capitalize text-slate-700">
+                      {status}
+                    </span>
+                  </p>
+
+                  <div className="flex flex-wrap gap-2">
+                    {status === "requested" && (
+                      <>
+                        <button
+                          onClick={() =>
+                            handleStatusUpdate(booking, "accepted")
+                          }
+                          disabled={isUpdating}
+                          className="rounded-lg bg-green-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-green-700 disabled:opacity-60"
+                        >
+                          {isUpdating ? "Updating..." : "Accept Booking"}
+                        </button>
+
+                        <button
+                          onClick={() =>
+                            handleStatusUpdate(booking, "rejected")
+                          }
+                          disabled={isUpdating}
+                          className="rounded-lg bg-red-50 px-4 py-2.5 text-xs font-semibold text-red-600 transition hover:bg-red-100 disabled:opacity-60"
+                        >
+                          Reject
+                        </button>
+                      </>
+                    )}
+
+                    {status === "accepted" && (
+                      <button
+                        onClick={() =>
+                          handleStatusUpdate(booking, "in progress")
+                        }
+                        disabled={isUpdating}
+                        className="rounded-lg bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
+                      >
+                        {isUpdating ? "Updating..." : "Start Job"}
+                      </button>
+                    )}
+
+                    {status === "in progress" && (
+                      <button
+                        onClick={() =>
+                          handleStatusUpdate(booking, "completed")
+                        }
+                        disabled={isUpdating}
+                        className="rounded-lg bg-green-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-green-700 disabled:opacity-60"
+                      >
+                        {isUpdating ? "Updating..." : "Mark as Completed"}
+                      </button>
+                    )}
+
+                    {status === "completed" && (
+                      <span className="inline-flex items-center gap-2 rounded-lg bg-green-50 px-4 py-2.5 text-xs font-semibold text-green-700">
+                        <FiCheckCircle />
+                        Job Completed
+                      </span>
+                    )}
+
+                    {(status === "rejected" || status === "cancelled") && (
+                      <span className="rounded-lg bg-slate-100 px-4 py-2.5 text-xs font-semibold text-slate-500">
+                        No further action
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
+
 
 function Profile() {
   return (
