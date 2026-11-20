@@ -64,7 +64,7 @@ export default function LoginPage() {
         }
 
         const role = sessionData.user.role;
-
+        
         if (role === "admin") {
           router.push("/admin/dashboard");
         } else if (role === "technician") {
