@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   FiGrid,
@@ -18,6 +18,11 @@ import {
   FiUpload,
   FiImage,
   FiLoader,
+  FiEdit2,
+  FiTrash2,
+  FiSearch,
+  FiRefreshCw,
+  FiPower,
 } from "react-icons/fi";
 
 import { toast } from "sonner";
@@ -158,42 +163,820 @@ function Overview({ setActiveMenu }) {
   );
 }
 
-function MyServices({ setActiveMenu }) {
-  return (
-    <div>
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">
-            My Services
-          </h1>
 
-          <p className="mt-2 text-slate-500">
-            Manage the repair services you offer.
+
+function MyServices() {
+  const { user } = useAuth();
+
+  const [services, setServices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+
+  const [selectedService, setSelectedService] = useState(null);
+  const [editData, setEditData] = useState({});
+  const [editImage, setEditImage] = useState(null);
+  const [editImagePreview, setEditImagePreview] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const [deleteService, setDeleteService] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const [updatingAvailability, setUpdatingAvailability] = useState(null);
+
+  const categories = [
+    "Smartphone",
+    "Laptop & PC",
+    "AC",
+    "Refrigerator",
+    "TV",
+    "Washing Machine",
+    "Electrical",
+  ];
+
+  const getAuthToken = async () => {
+    const { data, error } = await authClient.token();
+
+    if (error || !data?.token) {
+      throw new Error("Authentication token not found. Please login again.");
+    }
+
+    return data.token;
+  };
+
+  const getHeaders = async () => {
+    const token = await getAuthToken();
+
+    return {
+      Authorization: `Bearer ${token}`,
+    };
+  };
+
+  // Fetch technician services
+  const fetchServices = async (showRefresh = false) => {
+    try {
+      if (showRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+
+      const headers = await getHeaders();
+
+      const response = await api.get("/api/services/my-services", {
+        headers,
+      });
+
+      setServices(response.data.services || []);
+    } catch (error) {
+      console.error("Fetch Services Error:", error);
+
+      toast.error(
+        error.response?.data?.message || "Failed to load your services."
+      );
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchServices();
+  }, []);
+
+  // Open edit modal
+  const openEditModal = (service) => {
+    setSelectedService(service);
+
+    setEditData({
+      title: service.title || "",
+      category: service.category || "",
+      description: service.description || "",
+      basePrice: service.basePrice || "",
+      estimatedDuration: service.estimatedDuration || "",
+      serviceMode: service.serviceMode || "Home Visit",
+      serviceArea: service.serviceArea || "",
+    });
+
+    setEditImage(null);
+    setEditImagePreview(service.image || "");
+  };
+
+  // Edit input handler
+  const handleEditChange = (e) => {
+    const { name, value } = e.target;
+
+    setEditData((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
+  };
+
+  // Image selection
+  const handleEditImage = (e) => {
+    const file = e.target.files?.[0];
+
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select a valid image file.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image size must be less than 5MB.");
+      return;
+    }
+
+    setEditImage(file);
+    setEditImagePreview(URL.createObjectURL(file));
+  };
+
+  // Update service
+  const handleUpdateService = async (e) => {
+    e.preventDefault();
+
+    if (!editData.title.trim()) {
+      toast.error("Service title is required.");
+      return;
+    }
+
+    if (!editData.basePrice || Number(editData.basePrice) <= 0) {
+      toast.error("Please enter a valid base price.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const headers = await getHeaders();
+
+      let imageUrl = selectedService.image;
+
+      // Upload new image if selected
+      if (editImage) {
+        const reader = new FileReader();
+
+        const base64Image = await new Promise((resolve, reject) => {
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error("Image reading failed."));
+          reader.readAsDataURL(editImage);
+        });
+
+        const uploadResponse = await api.post(
+          "/api/images/upload",
+          {
+            image: base64Image,
+          },
+          { headers }
+        );
+
+        imageUrl = uploadResponse.data.imageUrl;
+      }
+
+      const payload = {
+        ...editData,
+        basePrice: Number(editData.basePrice),
+        image: imageUrl,
+      };
+
+      const response = await api.patch(
+        `/api/services/${selectedService._id}`,
+        payload,
+        { headers }
+      );
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || "Service update failed.");
+      }
+
+      toast.success("Service updated! Waiting for admin approval.");
+
+      setSelectedService(null);
+      setEditImage(null);
+      setEditImagePreview("");
+
+      await fetchServices(true);
+    } catch (error) {
+      console.error("Update Service Error:", error);
+
+      toast.error(
+        error.response?.data?.message ||
+          error.message ||
+          "Failed to update service."
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Delete service
+  const handleDeleteService = async () => {
+    if (!deleteService) return;
+
+    try {
+      setDeleting(true);
+
+      const headers = await getHeaders();
+
+      const response = await api.delete(
+        `/api/services/${deleteService._id}`,
+        { headers }
+      );
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || "Delete failed.");
+      }
+
+      toast.success("Service deleted successfully!");
+
+      setDeleteService(null);
+
+      await fetchServices(true);
+    } catch (error) {
+      console.error("Delete Service Error:", error);
+
+      toast.error(
+        error.response?.data?.message || "Failed to delete service."
+      );
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // Availability toggle
+  const handleAvailability = async (service) => {
+    try {
+      setUpdatingAvailability(service._id);
+
+      const headers = await getHeaders();
+
+      const response = await api.patch(
+        `/api/services/${service._id}`,
+        {
+          isAvailable: !service.isAvailable,
+        },
+        { headers }
+      );
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || "Update failed.");
+      }
+
+      setServices((previous) =>
+        previous.map((item) =>
+          item._id === service._id
+            ? { ...item, isAvailable: !service.isAvailable }
+            : item
+        )
+      );
+
+      toast.success(
+        service.isAvailable
+          ? "Service is now unavailable."
+          : "Service is now available."
+      );
+    } catch (error) {
+      console.error("Availability Error:", error);
+
+      toast.error(
+        error.response?.data?.message ||
+          "Failed to update service availability."
+      );
+    } finally {
+      setUpdatingAvailability(null);
+    }
+  };
+
+  // Filter services
+  const filteredServices = services.filter((service) => {
+    const searchText = search.toLowerCase();
+
+    const matchesSearch =
+      service.title?.toLowerCase().includes(searchText) ||
+      service.category?.toLowerCase().includes(searchText) ||
+      service.description?.toLowerCase().includes(searchText) ||
+      service.serviceArea?.toLowerCase().includes(searchText);
+
+    const matchesStatus =
+      statusFilter === "all" ||
+      service.approvalStatus === statusFilter;
+
+    const matchesCategory =
+      categoryFilter === "all" ||
+      service.category === categoryFilter;
+
+    return matchesSearch && matchesStatus && matchesCategory;
+  });
+
+  const pendingCount = services.filter(
+    (service) => service.approvalStatus === "pending"
+  ).length;
+
+  const approvedCount = services.filter(
+    (service) => service.approvalStatus === "approved"
+  ).length;
+
+  const rejectedCount = services.filter(
+    (service) => service.approvalStatus === "rejected"
+  ).length;
+
+  const getStatusStyle = (status) => {
+    switch (status) {
+      case "approved":
+        return "bg-green-100 text-green-700";
+
+      case "rejected":
+        return "bg-red-100 text-red-700";
+
+      default:
+        return "bg-amber-100 text-amber-700";
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center">
+        <span className="loading loading-spinner loading-lg text-blue-600"></span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900">
+            My Services
+          </h2>
+
+          <p className="mt-1 text-sm text-slate-500">
+            Manage, edit and monitor your repair services.
           </p>
         </div>
 
         <button
-          onClick={() => setActiveMenu("Add New Service")}
-          className="flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+          onClick={() => fetchServices(true)}
+          disabled={refreshing}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
         >
-          <FiPlusCircle /> Add Service
+          <FiRefreshCw className={refreshing ? "animate-spin" : ""} />
+          Refresh
         </button>
       </div>
 
-      <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-8 text-center">
-        <FiTool className="mx-auto text-4xl text-slate-400" />
+      {/* Statistics */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+          <p className="text-sm text-slate-500">Pending Approval</p>
+          <h3 className="mt-2 text-3xl font-bold text-amber-600">
+            {pendingCount}
+          </h3>
+        </div>
 
-        <h2 className="mt-4 font-semibold text-slate-800">
-          Your services will appear here
-        </h2>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+          <p className="text-sm text-slate-500">Approved Services</p>
+          <h3 className="mt-2 text-3xl font-bold text-green-600">
+            {approvedCount}
+          </h3>
+        </div>
 
-        <p className="mt-2 text-sm text-slate-500">
-          Service listing management will be connected in the next step.
-        </p>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+          <p className="text-sm text-slate-500">Rejected Services</p>
+          <h3 className="mt-2 text-3xl font-bold text-red-600">
+            {rejectedCount}
+          </h3>
+        </div>
       </div>
+
+      {/* Search and Filters */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="relative">
+            <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search services..."
+              className="w-full rounded-xl border border-slate-200 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-blue-500"
+            />
+          </div>
+
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500"
+          >
+            <option value="all">All Status</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
+
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500"
+          >
+            <option value="all">All Categories</option>
+
+            {categories.map((category) => (
+              <option key={category} value={category}>
+                {category}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Service List */}
+      {filteredServices.length === 0 ? (
+        <div className="rounded-2xl border border-slate-200 bg-white px-5 py-16 text-center">
+          <FiTool className="mx-auto text-4xl text-slate-300" />
+
+          <h3 className="mt-4 text-lg font-bold text-slate-800">
+            No Services Found
+          </h3>
+
+          <p className="mt-2 text-sm text-slate-500">
+            No services match your current search or filters.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+          {filteredServices.map((service) => (
+            <div
+              key={service._id}
+              className="overflow-hidden rounded-2xl border border-slate-200 bg-white transition hover:shadow-md"
+            >
+              <div className="flex flex-col sm:flex-row">
+                <div className="h-48 w-full shrink-0 bg-slate-100 sm:h-auto sm:w-44">
+                  <img
+                    src={service.image}
+                    alt={service.title}
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+
+                <div className="flex min-w-0 flex-1 flex-col p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                      {service.category}
+                    </span>
+
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${getStatusStyle(
+                        service.approvalStatus
+                      )}`}
+                    >
+                      {service.approvalStatus}
+                    </span>
+                  </div>
+
+                  <h3 className="mt-3 text-lg font-bold text-slate-900">
+                    {service.title}
+                  </h3>
+
+                  <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-500">
+                    {service.description}
+                  </p>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <p className="text-xs text-slate-400">Base Price</p>
+                      <p className="mt-1 font-bold text-slate-900">
+                        ৳{Number(service.basePrice).toLocaleString("en-BD")}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-slate-400">Duration</p>
+                      <p className="mt-1 font-semibold text-slate-700">
+                        {service.estimatedDuration}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-slate-400">Service Mode</p>
+                      <p className="mt-1 font-semibold text-slate-700">
+                        {service.serviceMode}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-slate-400">Service Area</p>
+                      <p className="mt-1 font-semibold text-slate-700">
+                        {service.serviceArea}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+                    <button
+                      onClick={() => handleAvailability(service)}
+                      disabled={updatingAvailability === service._id}
+                      className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition disabled:opacity-60 ${
+                        service.isAvailable
+                          ? "bg-green-50 text-green-700 hover:bg-green-100"
+                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      }`}
+                    >
+                      <FiPower />
+                      {updatingAvailability === service._id
+                        ? "Updating..."
+                        : service.isAvailable
+                          ? "Available"
+                          : "Unavailable"}
+                    </button>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => openEditModal(service)}
+                        className="inline-flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
+                      >
+                        <FiEdit2 />
+                        Edit
+                      </button>
+
+                      <button
+                        onClick={() => setDeleteService(service)}
+                        className="inline-flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-100"
+                      >
+                        <FiTrash2 />
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Edit Service Modal */}
+      {selectedService && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-3 sm:p-5">
+          <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            {/* Modal Header */}
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4 sm:px-7">
+              <div>
+                <h3 className="text-xl font-bold text-slate-900">
+                  Edit Service
+                </h3>
+
+                <p className="mt-1 text-xs text-slate-500">
+                  Update your service information.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedService(null)}
+                disabled={saving}
+                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100"
+              >
+                <FiX size={21} />
+              </button>
+            </div>
+
+            <form
+              onSubmit={handleUpdateService}
+              className="flex min-h-0 flex-1 flex-col"
+            >
+              {/* Scrollable Form Content */}
+              <div className="flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 py-5 sm:px-7">
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">
+                    Service Title
+                  </label>
+
+                  <input
+                    type="text"
+                    name="title"
+                    value={editData.title || ""}
+                    onChange={handleEditChange}
+                    required
+                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">
+                    Category
+                  </label>
+
+                  <select
+                    name="category"
+                    value={editData.category || ""}
+                    onChange={handleEditChange}
+                    required
+                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500"
+                  >
+                    {categories.map((category) => (
+                      <option key={category} value={category}>
+                        {category}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">
+                    Description
+                  </label>
+
+                  <textarea
+                    name="description"
+                    value={editData.description || ""}
+                    onChange={handleEditChange}
+                    rows={4}
+                    required
+                    className="w-full resize-none rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">
+                      Base Price (৳)
+                    </label>
+
+                    <input
+                      type="number"
+                      name="basePrice"
+                      min="1"
+                      value={editData.basePrice ?? ""}
+                      onChange={handleEditChange}
+                      required
+                      className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">
+                      Estimated Duration
+                    </label>
+
+                    <input
+                      type="text"
+                      name="estimatedDuration"
+                      value={editData.estimatedDuration || ""}
+                      onChange={handleEditChange}
+                      required
+                      placeholder="e.g. 2-3 hours"
+                      className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">
+                    Service Mode
+                  </label>
+
+                  <select
+                    name="serviceMode"
+                    value={editData.serviceMode || "Home Visit"}
+                    onChange={handleEditChange}
+                    required
+                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500"
+                  >
+                    <option value="Home Visit">Home Visit</option>
+                    <option value="Shop Drop-off">Shop Drop-off</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">
+                    Service Area
+                  </label>
+
+                  <input
+                    type="text"
+                    name="serviceArea"
+                    value={editData.serviceArea || ""}
+                    onChange={handleEditChange}
+                    required
+                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">
+                    Service Image
+                  </label>
+
+                  <div className="rounded-xl border border-dashed border-slate-300 p-4">
+                    {editImagePreview && (
+                      <img
+                        src={editImagePreview}
+                        alt="Service preview"
+                        className="mb-4 h-40 w-full rounded-lg object-cover"
+                      />
+                    )}
+
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleEditImage}
+                      className="w-full text-sm text-slate-600 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-blue-700"
+                    />
+
+                    <p className="mt-2 text-xs text-slate-400">
+                      Select a new image only if you want to replace the current one. Maximum 5MB.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-800">
+                  <p className="font-semibold">Admin Approval Required</p>
+                  <p className="mt-1 text-xs leading-5">
+                    Updating service details will send this service back for
+                    admin approval.
+                  </p>
+                </div>
+              </div>
+
+              {/* Fixed Modal Footer */}
+              <div className="flex shrink-0 justify-end gap-3 border-t border-slate-200 bg-white px-5 py-4 sm:px-7">
+                <button
+                  type="button"
+                  onClick={() => setSelectedService(null)}
+                  disabled={saving}
+                  className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {saving && (
+                    <span className="loading loading-spinner loading-xs"></span>
+                  )}
+
+                  {saving ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteService && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-50 text-red-600">
+              <FiTrash2 size={25} />
+            </div>
+
+            <h3 className="mt-4 text-center text-xl font-bold text-slate-900">
+              Delete Service?
+            </h3>
+
+            <p className="mt-2 text-center text-sm leading-6 text-slate-500">
+              Are you sure you want to delete{" "}
+              <span className="font-semibold text-slate-800">
+                {deleteService.title}
+              </span>
+              ? This action cannot be undone.
+            </p>
+
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => setDeleteService(null)}
+                disabled={deleting}
+                className="flex-1 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={handleDeleteService}
+                disabled={deleting}
+                className="flex-1 rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                {deleting ? "Deleting..." : "Yes, Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+
 
 function AddService() {
   const { user } = useAuth();
@@ -356,8 +1139,8 @@ function AddService() {
 
       toast.error(
         error.response?.data?.message ||
-          error.message ||
-          "Unable to create service. Please try again."
+        error.message ||
+        "Unable to create service. Please try again."
       );
     } finally {
       setIsSubmitting(false);
@@ -804,9 +1587,8 @@ export default function TechnicianDashboard() {
 
         {/* Fixed Sidebar */}
         <aside
-          className={`fixed left-0 top-0 z-40 flex h-screen w-72 flex-col border-r border-slate-200 bg-white transition-transform duration-300 ${
-            sidebarOpen ? "translate-x-0" : "-translate-x-full"
-          } lg:translate-x-0`}
+          className={`fixed left-0 top-0 z-40 flex h-screen w-72 flex-col border-r border-slate-200 bg-white transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
+            } lg:translate-x-0`}
         >
           <div className="border-b border-slate-100 px-7 py-7">
             <Link href="/" className="text-2xl font-bold text-slate-900">
@@ -835,11 +1617,10 @@ export default function TechnicianDashboard() {
                       setActiveMenu(item.name);
                       setSidebarOpen(false);
                     }}
-                    className={`flex w-full items-center gap-4 rounded-xl px-4 py-3.5 text-left text-sm font-semibold transition ${
-                      isActive
+                    className={`flex w-full items-center gap-4 rounded-xl px-4 py-3.5 text-left text-sm font-semibold transition ${isActive
                         ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20"
                         : "text-slate-600 hover:bg-slate-100 hover:text-blue-600"
-                    }`}
+                      }`}
                   >
                     <Icon size={19} />
                     {item.name}
