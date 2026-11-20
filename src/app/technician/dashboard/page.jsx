@@ -15,9 +15,16 @@ import {
   FiClock,
   FiCheckCircle,
   FiBriefcase,
+  FiUpload,
+  FiImage,
+  FiLoader,
 } from "react-icons/fi";
 
+import { toast } from "sonner";
 import ProtectedRoute from "../../components/ProtectedRoute";
+import { useAuth } from "../../../context/authContext";
+import { authClient } from "../../lib/auth-client";
+import api from "../../lib/axios";
 
 const menuItems = [
   { name: "Dashboard", icon: FiGrid },
@@ -26,6 +33,18 @@ const menuItems = [
   { name: "My Bookings", icon: FiCalendar },
   { name: "My Profile", icon: FiUser },
 ];
+
+const categories = [
+  "Smartphone",
+  "Laptop & PC",
+  "AC",
+  "Refrigerator",
+  "TV",
+  "Washing Machine",
+  "Electrical",
+];
+
+const serviceModes = ["Home Visit", "Shop Drop-off"];
 
 function Overview({ setActiveMenu }) {
   const stats = [
@@ -169,7 +188,7 @@ function MyServices({ setActiveMenu }) {
         </h2>
 
         <p className="mt-2 text-sm text-slate-500">
-          Connect the services API to load and manage your services.
+          Service listing management will be connected in the next step.
         </p>
       </div>
     </div>
@@ -177,6 +196,174 @@ function MyServices({ setActiveMenu }) {
 }
 
 function AddService() {
+  const { user } = useAuth();
+
+  const [formData, setFormData] = useState({
+    title: "",
+    category: "",
+    description: "",
+    basePrice: "",
+    estimatedDuration: "",
+    serviceMode: "",
+    serviceArea: "",
+  });
+
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
+  const handleImageChange = (e) => {
+    const file = e.target.files?.[0];
+
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select a valid image file!");
+      e.target.value = "";
+      return;
+    }
+
+    setImageFile(file);
+
+    const reader = new FileReader();
+
+    reader.onloadend = () => {
+      setImagePreview(reader.result);
+    };
+
+    reader.onerror = () => {
+      toast.error("Unable to read the selected image!");
+      setImageFile(null);
+      setImagePreview("");
+    };
+
+    reader.readAsDataURL(file);
+  };
+
+  const getAuthToken = async () => {
+    const { data, error } = await authClient.token();
+
+    if (error || !data?.token) {
+      throw new Error(
+        error?.message || "Authentication token could not be retrieved!"
+      );
+    }
+
+    return data.token;
+  };
+
+  const resetForm = () => {
+    setFormData({
+      title: "",
+      category: "",
+      description: "",
+      basePrice: "",
+      estimatedDuration: "",
+      serviceMode: "",
+      serviceArea: "",
+    });
+
+    setImageFile(null);
+    setImagePreview("");
+
+    const fileInput = document.getElementById("service-image");
+
+    if (fileInput) fileInput.value = "";
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!user?.name || !user?.email) {
+      toast.error("Technician information is unavailable. Please login again.");
+      return;
+    }
+
+    if (!imageFile || !imagePreview) {
+      toast.error("Please upload a service image!");
+      return;
+    }
+
+    if (Number(formData.basePrice) <= 0) {
+      toast.error("Base price must be greater than zero!");
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+
+      // Step 1: Get JWT token
+      const token = await getAuthToken();
+
+      const authHeaders = {
+        Authorization: `Bearer ${token}`,
+      };
+
+      // Step 2: Upload image to ImgBB through backend
+      const imageResponse = await api.post(
+        "/api/images/upload",
+        {
+          image: imagePreview,
+        },
+        {
+          headers: authHeaders,
+        }
+      );
+
+      const imageUrl = imageResponse.data?.imageUrl;
+
+      if (!imageResponse.data?.success || !imageUrl) {
+        throw new Error("Image upload failed!");
+      }
+
+      // Step 3: Create service
+      const servicePayload = {
+        ...formData,
+        basePrice: Number(formData.basePrice),
+        image: imageUrl,
+      };
+
+      const serviceResponse = await api.post(
+        "/api/services",
+        servicePayload,
+        {
+          headers: authHeaders,
+        }
+      );
+
+      if (!serviceResponse.data?.success) {
+        throw new Error(
+          serviceResponse.data?.message || "Service creation failed!"
+        );
+      }
+
+      toast.success(
+        "Service created successfully! Waiting for admin approval."
+      );
+
+      resetForm();
+    } catch (error) {
+      console.error("Add Service Error:", error);
+
+      toast.error(
+        error.response?.data?.message ||
+          error.message ||
+          "Unable to create service. Please try again."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div>
       <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">
@@ -184,23 +371,328 @@ function AddService() {
       </h1>
 
       <p className="mt-2 text-slate-500">
-        Create a new repair service listing.
+        Create a repair service listing and reach more customers.
       </p>
 
-      <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-8">
-        <div className="flex items-center gap-3 text-blue-600">
-          <FiPlusCircle size={25} />
+      <form
+        onSubmit={handleSubmit}
+        className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 sm:p-8"
+      >
+        <div className="mb-8 flex items-center gap-3 border-b border-slate-100 pb-6">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+            <FiPlusCircle size={24} />
+          </div>
 
-          <h2 className="text-lg font-bold text-slate-900">
-            Create Service
-          </h2>
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">
+              Create Repair Service
+            </h2>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Fill in the details below to publish your service.
+            </p>
+          </div>
         </div>
 
-        <p className="mt-3 text-sm leading-6 text-slate-500">
-          The service creation form will be connected to the backend API in the
-          next step.
-        </p>
-      </div>
+        {/* Technician Information */}
+        <div className="mb-8">
+          <h3 className="mb-4 font-semibold text-slate-800">
+            Technician Information
+          </h3>
+
+          <div className="grid gap-5 md:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Technician Name
+              </label>
+
+              <input
+                type="text"
+                value={user?.name || ""}
+                readOnly
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-500 outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Technician Email
+              </label>
+
+              <input
+                type="email"
+                value={user?.email || ""}
+                readOnly
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-500 outline-none"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Service Information */}
+        <div>
+          <h3 className="mb-4 font-semibold text-slate-800">
+            Service Information
+          </h3>
+
+          <div className="grid gap-5 md:grid-cols-2">
+            {/* Title */}
+            <div className="md:col-span-2">
+              <label
+                htmlFor="title"
+                className="mb-2 block text-sm font-medium text-slate-700"
+              >
+                Service Title <span className="text-red-500">*</span>
+              </label>
+
+              <input
+                id="title"
+                name="title"
+                type="text"
+                value={formData.title}
+                onChange={handleChange}
+                placeholder="e.g. Professional Smartphone Repair"
+                required
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+
+            {/* Category */}
+            <div>
+              <label
+                htmlFor="category"
+                className="mb-2 block text-sm font-medium text-slate-700"
+              >
+                Category <span className="text-red-500">*</span>
+              </label>
+
+              <select
+                id="category"
+                name="category"
+                value={formData.category}
+                onChange={handleChange}
+                required
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="">Select Category</option>
+
+                {categories.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Base Price */}
+            <div>
+              <label
+                htmlFor="basePrice"
+                className="mb-2 block text-sm font-medium text-slate-700"
+              >
+                Base Price (৳) <span className="text-red-500">*</span>
+              </label>
+
+              <input
+                id="basePrice"
+                name="basePrice"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={formData.basePrice}
+                onChange={handleChange}
+                placeholder="Enter service price"
+                required
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+
+            {/* Estimated Duration */}
+            <div>
+              <label
+                htmlFor="estimatedDuration"
+                className="mb-2 block text-sm font-medium text-slate-700"
+              >
+                Estimated Duration <span className="text-red-500">*</span>
+              </label>
+
+              <input
+                id="estimatedDuration"
+                name="estimatedDuration"
+                type="text"
+                value={formData.estimatedDuration}
+                onChange={handleChange}
+                placeholder="e.g. 2 hours or 1-2 days"
+                required
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+
+            {/* Service Mode */}
+            <div>
+              <label
+                htmlFor="serviceMode"
+                className="mb-2 block text-sm font-medium text-slate-700"
+              >
+                Service Mode <span className="text-red-500">*</span>
+              </label>
+
+              <select
+                id="serviceMode"
+                name="serviceMode"
+                value={formData.serviceMode}
+                onChange={handleChange}
+                required
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="">Select Service Mode</option>
+
+                {serviceModes.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Service Area */}
+            <div className="md:col-span-2">
+              <label
+                htmlFor="serviceArea"
+                className="mb-2 block text-sm font-medium text-slate-700"
+              >
+                Service Area <span className="text-red-500">*</span>
+              </label>
+
+              <input
+                id="serviceArea"
+                name="serviceArea"
+                type="text"
+                value={formData.serviceArea}
+                onChange={handleChange}
+                placeholder="e.g. Bashundhara, Dhaka"
+                required
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+
+            {/* Description */}
+            <div className="md:col-span-2">
+              <label
+                htmlFor="description"
+                className="mb-2 block text-sm font-medium text-slate-700"
+              >
+                Description <span className="text-red-500">*</span>
+              </label>
+
+              <textarea
+                id="description"
+                name="description"
+                rows={5}
+                value={formData.description}
+                onChange={handleChange}
+                placeholder="Describe your repair service, supported devices and what customers can expect..."
+                required
+                className="w-full resize-y rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Service Image */}
+        <div className="mt-8">
+          <h3 className="mb-4 font-semibold text-slate-800">
+            Service Image
+          </h3>
+
+          <label
+            htmlFor="service-image"
+            className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-center transition hover:border-blue-500 hover:bg-blue-50"
+          >
+            <FiUpload className="text-3xl text-blue-600" />
+
+            <span className="mt-3 font-semibold text-slate-800">
+              Upload Service Image
+            </span>
+
+            <span className="mt-1 text-sm text-slate-500">
+              Choose an image from your device
+            </span>
+
+            <span className="mt-2 text-xs text-slate-400">
+              Image files only
+            </span>
+
+            <input
+              id="service-image"
+              type="file"
+              accept="image/*"
+              onChange={handleImageChange}
+              className="hidden"
+            />
+          </label>
+
+          {imagePreview && (
+            <div className="mt-5">
+              <p className="mb-3 text-sm font-medium text-slate-700">
+                Image Preview
+              </p>
+
+              <div className="relative max-w-sm overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                <img
+                  src={imagePreview}
+                  alt="Service preview"
+                  className="h-56 w-full object-cover"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setImageFile(null);
+                    setImagePreview("");
+
+                    const input = document.getElementById("service-image");
+                    if (input) input.value = "";
+                  }}
+                  className="absolute right-3 top-3 rounded-full bg-white p-2 text-red-500 shadow hover:bg-red-50"
+                  aria-label="Remove image"
+                >
+                  <FiX size={18} />
+                </button>
+              </div>
+
+              <p className="mt-2 break-all text-xs text-slate-500">
+                {imageFile?.name}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Submit */}
+        <div className="mt-8 border-t border-slate-100 pt-6">
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3.5 font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+          >
+            {isSubmitting ? (
+              <>
+                <FiLoader className="animate-spin" />
+                Uploading & Creating...
+              </>
+            ) : (
+              <>
+                <FiPlusCircle />
+                Create Service
+              </>
+            )}
+          </button>
+
+          <p className="mt-4 text-sm text-slate-500">
+            Your service will remain pending until an admin approves it.
+          </p>
+        </div>
+      </form>
     </div>
   );
 }

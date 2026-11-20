@@ -48,6 +48,7 @@ export default function LoginPage() {
     try {
       setLoading(true);
 
+      // Step 1: Sign in
       const { data, error: authError } =
         await authClient.signIn.email({
           email: email.trim(),
@@ -63,33 +64,38 @@ export default function LoginPage() {
         return;
       }
 
-      if (data) {
-        const { data: sessionData, error: sessionError } =
-          await authClient.getSession();
-
-        if (sessionError || !sessionData?.user) {
-          const message =
-            "Login successful, but unable to load your account.";
-
-          setError(message);
-          toast.error(message);
-          return;
-        }
-
-        const role = sessionData.user.role;
-
-        toast.success("Welcome back! Login successful.");
-
-        if (role === "admin") {
-          router.replace("/admin/dashboard");
-        } else if (role === "technician") {
-          router.replace("/technician/dashboard");
-        } else {
-          router.replace("/dashboard");
-        }
-
-        router.refresh();
+      if (!data) {
+        throw new Error("Login failed. Please try again.");
       }
+
+      // Step 2: Get the updated session
+      const {
+        data: sessionData,
+        error: sessionError,
+      } = await authClient.getSession();
+
+      if (sessionError || !sessionData?.user) {
+        throw new Error(
+          "Login successful, but unable to load your account. Please try again."
+        );
+      }
+
+      // Step 3: Determine dashboard by role
+      const role = sessionData.user.role;
+
+      let dashboardPath = "/dashboard";
+
+      if (role === "admin") {
+        dashboardPath = "/admin/dashboard";
+      } else if (role === "technician") {
+        dashboardPath = "/technician/dashboard";
+      }
+
+      // Step 4: Notify and redirect
+      toast.success("Welcome back! Login successful.");
+
+      router.replace(dashboardPath);
+
     } catch (err) {
       const message =
         err.message || "Something went wrong. Please try again.";
