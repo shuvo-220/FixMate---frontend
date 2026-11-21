@@ -74,6 +74,9 @@ export default function LoginPage() {
         error: sessionError,
       } = await authClient.getSession();
 
+      console.log("SESSION DATA:", sessionData);
+console.log("SESSION USER:", sessionData?.user);
+
       if (sessionError || !sessionData?.user) {
         throw new Error(
           "Login successful, but unable to load your account. Please try again."

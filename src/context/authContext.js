@@ -15,7 +15,7 @@ export function AuthProvider({ children }) {
     error,
     refetch,
   } = authClient.useSession();
-
+  
   const user = session?.user || null;
 
   const logout = async () => {

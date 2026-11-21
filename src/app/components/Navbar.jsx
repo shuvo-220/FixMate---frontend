@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { toast } from "sonner";
 
 import {
@@ -18,6 +19,8 @@ import { useAuth } from "../../context/authContext";
 export default function Navbar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const pathname = usePathname();
 
   const { user, isAuthenticated, isLoading, logout } = useAuth();
 
@@ -51,6 +54,22 @@ export default function Navbar() {
       ? "/technician/dashboard"
       : "/dashboard";
 
+  // Active route checking
+  const isHomeActive = pathname === "/";
+  const isServicesActive = pathname === "/services";
+
+  const desktopLinkClass = (isActive) =>
+    `transition hover:text-blue-600 ${
+      isActive ? "text-blue-600" : "text-slate-600"
+    }`;
+
+  const mobileLinkClass = (isActive) =>
+    `rounded-lg px-4 py-3 text-sm font-semibold transition ${
+      isActive
+        ? "bg-blue-50 text-blue-600"
+        : "text-slate-700 hover:bg-slate-50 hover:text-blue-600"
+    }`;
+
   return (
     <header className="sticky top-0 z-50 border-b border-slate-100 bg-white/95 backdrop-blur-md">
       <nav className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 lg:px-8">
@@ -71,20 +90,34 @@ export default function Navbar() {
         </Link>
 
         {/* Desktop Navigation */}
-        <div className="hidden items-center gap-8 text-sm font-semibold text-slate-600 md:flex">
-          <Link href="/" className="text-blue-600 transition hover:text-blue-700">
+        <div className="hidden items-center gap-8 text-sm font-semibold md:flex">
+          <Link
+            href="/"
+            aria-current={isHomeActive ? "page" : undefined}
+            className={desktopLinkClass(isHomeActive)}
+          >
             Home
           </Link>
 
-          <Link href="/services" className="transition hover:text-blue-600">
+          <Link
+            href="/services"
+            aria-current={isServicesActive ? "page" : undefined}
+            className={desktopLinkClass(isServicesActive)}
+          >
             Services
           </Link>
 
-          <Link href="/#how-it-works" className="transition hover:text-blue-600">
+          <Link
+            href="/#how-it-works"
+            className={desktopLinkClass(false)}
+          >
             How It Works
           </Link>
 
-          <Link href="/#why-fixmate" className="transition hover:text-blue-600">
+          <Link
+            href="/#why-fixmate"
+            className={desktopLinkClass(false)}
+          >
             Why FixMate
           </Link>
         </div>
@@ -101,7 +134,9 @@ export default function Navbar() {
                   <FiUser size={18} />
                 </span>
 
-                <span className="max-w-32 truncate">{userName}</span>
+                <span className="max-w-32 truncate">
+                  {userName}
+                </span>
               </Link>
 
               <button
@@ -152,7 +187,8 @@ export default function Navbar() {
             <Link
               href="/"
               onClick={closeMenu}
-              className="rounded-lg bg-blue-50 px-4 py-3 text-sm font-bold text-blue-600"
+              aria-current={isHomeActive ? "page" : undefined}
+              className={mobileLinkClass(isHomeActive)}
             >
               Home
             </Link>
@@ -160,7 +196,8 @@ export default function Navbar() {
             <Link
               href="/services"
               onClick={closeMenu}
-              className="rounded-lg px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 hover:text-blue-600"
+              aria-current={isServicesActive ? "page" : undefined}
+              className={mobileLinkClass(isServicesActive)}
             >
               Services
             </Link>
@@ -168,7 +205,7 @@ export default function Navbar() {
             <Link
               href="/#how-it-works"
               onClick={closeMenu}
-              className="rounded-lg px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 hover:text-blue-600"
+              className={mobileLinkClass(false)}
             >
               How It Works
             </Link>
@@ -176,7 +213,7 @@ export default function Navbar() {
             <Link
               href="/#why-fixmate"
               onClick={closeMenu}
-              className="rounded-lg px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 hover:text-blue-600"
+              className={mobileLinkClass(false)}
             >
               Why FixMate
             </Link>
