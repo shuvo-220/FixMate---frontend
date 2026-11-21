@@ -27,23 +27,25 @@ export default function Navbar() {
   const closeMenu = () => setIsMenuOpen(false);
 
   const handleLogout = async () => {
-    try {
-      setIsLoggingOut(true);
-      closeMenu();
+  if (isLoggingOut) return;
 
-      await logout();
+  try {
+    setIsLoggingOut(true);
+    closeMenu();
 
-      toast.success("Logged out successfully!");
-    } catch (error) {
-      console.error("Logout failed:", error);
+    await logout();
 
-      toast.error(
-        error.message || "Unable to logout. Please try again."
-      );
-    } finally {
-      setIsLoggingOut(false);
-    }
-  };
+    // No success toast
+  } catch (error) {
+    console.error("Logout failed:", error);
+
+    toast.error(
+      error.message || "Unable to logout. Please try again."
+    );
+
+    setIsLoggingOut(false);
+  }
+};
 
   const userName = user?.name || "My Account";
 

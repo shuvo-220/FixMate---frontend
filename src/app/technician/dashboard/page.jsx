@@ -1747,12 +1747,14 @@ function MyBookings() {
 
       setBookings(response.data.bookings || []);
     } catch (error) {
-      console.error("Fetch Bookings Error:", error);
+  console.error("Fetch Bookings Error:", error);
 
-      toast.error(
-        error.response?.data?.message || "Failed to load bookings."
-      );
-    } finally {
+  if (!isLogoutInProgress()) {
+    toast.error(
+      error.response?.data?.message || "Failed to load bookings."
+    );
+  }
+} finally {
       setLoading(false);
       setRefreshing(false);
     }
