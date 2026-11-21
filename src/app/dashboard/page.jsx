@@ -22,14 +22,10 @@ import {
 
 import ProtectedRoute from "../components/ProtectedRoute";
 
-const menuItems = [
-  { name: "Dashboard", icon: FiGrid },
-  { name: "My Bookings", icon: FiCalendar },
-  { name: "Payment History", icon: FiCreditCard },
-  { name: "My Profile", icon: FiUser },
-];
+// ==============================
+// Shared Helpers
+// ==============================
 
-// Format amount in Bangladeshi Taka
 const formatBDT = (amount) => {
   return `৳${Number(amount || 0).toLocaleString("en-BD", {
     minimumFractionDigits: 0,
@@ -37,70 +33,210 @@ const formatBDT = (amount) => {
   })}`;
 };
 
+const getToken = async () => {
+  const { data, error } = await authClient.token();
+
+  if (error || !data?.token) {
+    throw new Error("Authentication token not found!");
+  }
+
+  return data.token;
+};
+
+const formatDate = (date) => {
+  if (!date) return "N/A";
+
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) return "N/A";
+
+  return parsedDate.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+};
+
+const getStatusStyle = (status) => {
+  const styles = {
+    requested: "bg-blue-100 text-blue-700",
+    accepted: "bg-indigo-100 text-indigo-700",
+    "in-progress": "bg-amber-100 text-amber-700",
+    completed: "bg-emerald-100 text-emerald-700",
+    rejected: "bg-red-100 text-red-700",
+    cancelled: "bg-slate-100 text-slate-600",
+  };
+
+  return styles[status?.toLowerCase()] || "bg-slate-100 text-slate-600";
+};
+
+const formatStatus = (status) => {
+  if (!status) return "Unknown";
+
+  return status
+    .split("-")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+};
+
+const menuItems = [
+  { name: "Dashboard", icon: FiGrid },
+  { name: "My Bookings", icon: FiCalendar },
+  { name: "Payment History", icon: FiCreditCard },
+  { name: "My Profile", icon: FiUser },
+];
 
 // ==============================
 // Dashboard Overview
 // ==============================
 
 function Overview({ setActiveMenu }) {
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchOverviewData = async () => {
+    try {
+      setLoading(true);
+
+      const token = await getToken();
+
+      const response = await api.get("/api/bookings/my-bookings", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      setBookings(response.data.bookings || []);
+    } catch (error) {
+      console.error("Customer Overview Error:", error);
+
+      toast.error(
+        error.response?.data?.message ||
+          "Failed to load dashboard information!"
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchOverviewData();
+  }, []);
+
+  // Dashboard Statistics
+  const totalRequests = bookings.length;
+
+  const activeJobs = bookings.filter((booking) =>
+    ["accepted", "in-progress"].includes(
+      booking.status?.toLowerCase()
+    )
+  ).length;
+
+  const completedJobs = bookings.filter(
+    (booking) => booking.status?.toLowerCase() === "completed"
+  ).length;
+
+  // Latest 5 Bookings
+  const recentBookings = [...bookings]
+    .sort(
+      (a, b) =>
+        new Date(b.createdAt || 0).getTime() -
+        new Date(a.createdAt || 0).getTime()
+    )
+    .slice(0, 5);
+
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">
-          Welcome to FixMate!
-        </h1>
+      {/* Header */}
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">
+            Welcome to FixMate!
+          </h1>
 
-        <p className="mt-2 text-slate-500">
-          Manage your repair services and account from here.
-        </p>
+          <p className="mt-2 text-slate-500">
+            Manage your repair services and account from here.
+          </p>
+        </div>
+
+        <button
+          onClick={fetchOverviewData}
+          disabled={loading}
+          className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+        >
+          {loading ? "Loading..." : "Refresh Overview"}
+        </button>
       </div>
 
+      {/* Statistics */}
       <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+        {/* Total Requests */}
         <div className="rounded-2xl border border-slate-200 bg-white p-6">
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
             <FiCalendar size={23} />
           </div>
 
-          <p className="text-sm text-slate-500">Total Bookings</p>
+          <p className="text-sm text-slate-500">
+            Total Requests
+          </p>
 
           <h2 className="mt-2 text-3xl font-bold text-slate-900">
-            --
+            {loading ? "..." : totalRequests}
           </h2>
+
+          <p className="mt-2 text-xs text-slate-400">
+            All your repair service requests
+          </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-6">
-          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-green-100 text-green-600">
-            <FiCheckCircle size={23} />
-          </div>
-
-          <p className="text-sm text-slate-500">Completed Services</p>
-
-          <h2 className="mt-2 text-3xl font-bold text-slate-900">
-            --
-          </h2>
-        </div>
-
+        {/* Active Jobs */}
         <div className="rounded-2xl border border-slate-200 bg-white p-6">
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-orange-100 text-orange-600">
             <FiClock size={23} />
           </div>
 
-          <p className="text-sm text-slate-500">Pending Bookings</p>
+          <p className="text-sm text-slate-500">
+            Active Jobs
+          </p>
 
           <h2 className="mt-2 text-3xl font-bold text-slate-900">
-            --
+            {loading ? "..." : activeJobs}
           </h2>
+
+          <p className="mt-2 text-xs text-slate-400">
+            Accepted and ongoing repair jobs
+          </p>
+        </div>
+
+        {/* Completed Jobs */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-6">
+          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-green-100 text-green-600">
+            <FiCheckCircle size={23} />
+          </div>
+
+          <p className="text-sm text-slate-500">
+            Completed Jobs
+          </p>
+
+          <h2 className="mt-2 text-3xl font-bold text-slate-900">
+            {loading ? "..." : completedJobs}
+          </h2>
+
+          <p className="mt-2 text-xs text-slate-400">
+            Successfully completed repair jobs
+          </p>
         </div>
       </div>
 
+      {/* Browse Services Banner */}
       <div className="mt-8 rounded-2xl bg-slate-900 p-7 text-white md:p-9">
         <h2 className="text-2xl font-bold">
           Need a repair service?
         </h2>
 
         <p className="mt-3 max-w-xl text-sm leading-6 text-slate-300">
-          Find trusted technicians and book reliable repair services for your
-          devices and home appliances.
+          Find trusted technicians and book reliable repair services for
+          your devices and home appliances.
         </p>
 
         <Link
@@ -111,6 +247,7 @@ function Overview({ setActiveMenu }) {
         </Link>
       </div>
 
+      {/* Recent Bookings */}
       <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -125,24 +262,75 @@ function Overview({ setActiveMenu }) {
 
           <button
             onClick={() => setActiveMenu("My Bookings")}
-            className="text-sm font-semibold text-blue-600 hover:text-blue-700"
+            className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-700"
           >
-            View All
+            View All <FiArrowRight />
           </button>
         </div>
 
-        <div className="mt-6 rounded-xl bg-slate-50 p-8 text-center">
-          <FiCalendar className="mx-auto text-3xl text-slate-400" />
+        <div className="mt-6">
+          {loading ? (
+            <div className="py-12 text-center text-sm text-slate-500">
+              Loading recent bookings...
+            </div>
+          ) : recentBookings.length === 0 ? (
+            <div className="rounded-xl bg-slate-50 px-5 py-12 text-center">
+              <FiCalendar className="mx-auto text-3xl text-slate-400" />
 
-          <p className="mt-3 text-sm text-slate-500">
-            Your booking information will appear here.
-          </p>
+              <h3 className="mt-3 font-semibold text-slate-700">
+                No bookings yet
+              </h3>
+
+              <p className="mt-2 text-sm text-slate-500">
+                Your recent repair service requests will appear here.
+              </p>
+
+              <Link
+                href="/services"
+                className="mt-5 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
+              >
+                Explore Services <FiArrowRight />
+              </Link>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {recentBookings.map((booking) => (
+                <div
+                  key={booking._id}
+                  className="flex flex-col gap-3 rounded-xl border border-slate-100 p-4 transition hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <h3 className="truncate font-semibold text-slate-800">
+                      {booking.serviceTitle || "Repair Service"}
+                    </h3>
+
+                    <p className="mt-1 text-xs text-slate-500">
+                      {booking.category || "General Repair"}
+                      {" · "}
+                      {formatDate(booking.createdAt)}
+                    </p>
+
+                    <p className="mt-1 text-xs text-slate-400">
+                      Technician: {booking.technicianName || "Not assigned"}
+                    </p>
+                  </div>
+
+                  <span
+                    className={`w-fit shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${getStatusStyle(
+                      booking.status
+                    )}`}
+                  >
+                    {formatStatus(booking.status)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
-
 
 // ==============================
 // My Bookings
@@ -156,16 +344,6 @@ function MyBookings() {
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [cancelling, setCancelling] = useState(false);
   const [payingId, setPayingId] = useState(null);
-
-  const getToken = async () => {
-    const { data, error } = await authClient.token();
-
-    if (error || !data?.token) {
-      throw new Error("Authentication token not found!");
-    }
-
-    return data.token;
-  };
 
   const fetchBookings = async () => {
     try {
@@ -271,42 +449,6 @@ function MyBookings() {
     }
   };
 
-  const getStatusStyle = (status) => {
-    const styles = {
-      requested: "bg-blue-100 text-blue-700",
-      accepted: "bg-indigo-100 text-indigo-700",
-      "in-progress": "bg-amber-100 text-amber-700",
-      completed: "bg-emerald-100 text-emerald-700",
-      rejected: "bg-red-100 text-red-700",
-      cancelled: "bg-slate-100 text-slate-600",
-    };
-
-    return styles[status?.toLowerCase()] || "bg-slate-100 text-slate-600";
-  };
-
-  const formatStatus = (status) => {
-    if (!status) return "Unknown";
-
-    return status
-      .split("-")
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(" ");
-  };
-
-  const formatDate = (date) => {
-    if (!date) return "N/A";
-
-    const parsedDate = new Date(date);
-
-    if (Number.isNaN(parsedDate.getTime())) return "N/A";
-
-    return parsedDate.toLocaleDateString("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  };
-
   const filteredBookings = bookings.filter((booking) => {
     const searchText = [
       booking.serviceTitle,
@@ -355,7 +497,6 @@ function MyBookings() {
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <p className="text-sm text-slate-500">Total Bookings</p>
-
           <h2 className="mt-2 text-3xl font-bold text-slate-900">
             {bookings.length}
           </h2>
@@ -363,37 +504,22 @@ function MyBookings() {
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <p className="text-sm text-slate-500">Requested</p>
-
           <h2 className="mt-2 text-3xl font-bold text-blue-600">
-            {
-              bookings.filter(
-                (b) => b.status?.toLowerCase() === "requested"
-              ).length
-            }
+            {bookings.filter((b) => b.status?.toLowerCase() === "requested").length}
           </h2>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <p className="text-sm text-slate-500">In Progress</p>
-
           <h2 className="mt-2 text-3xl font-bold text-amber-600">
-            {
-              bookings.filter(
-                (b) => b.status?.toLowerCase() === "in-progress"
-              ).length
-            }
+            {bookings.filter((b) => b.status?.toLowerCase() === "in-progress").length}
           </h2>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <p className="text-sm text-slate-500">Completed</p>
-
           <h2 className="mt-2 text-3xl font-bold text-emerald-600">
-            {
-              bookings.filter(
-                (b) => b.status?.toLowerCase() === "completed"
-              ).length
-            }
+            {bookings.filter((b) => b.status?.toLowerCase() === "completed").length}
           </h2>
         </div>
       </div>
@@ -625,7 +751,6 @@ function MyBookings() {
   );
 }
 
-
 // ==============================
 // Payment History
 // ==============================
@@ -634,16 +759,6 @@ function Payments() {
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-
-  const getToken = async () => {
-    const { data, error } = await authClient.token();
-
-    if (error || !data?.token) {
-      throw new Error("Authentication token not found!");
-    }
-
-    return data.token;
-  };
 
   const fetchPayments = async () => {
     try {
@@ -672,20 +787,6 @@ function Payments() {
   useEffect(() => {
     fetchPayments();
   }, []);
-
-  const formatDate = (date) => {
-    if (!date) return "N/A";
-
-    const parsedDate = new Date(date);
-
-    if (Number.isNaN(parsedDate.getTime())) return "N/A";
-
-    return parsedDate.toLocaleDateString("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  };
 
   const filteredPayments = payments.filter((payment) => {
     const searchText = [
@@ -847,7 +948,6 @@ function Payments() {
   );
 }
 
-
 // ==============================
 // My Profile
 // ==============================
@@ -866,17 +966,6 @@ function Profile() {
   const [imagePreview, setImagePreview] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-
-  // Get Authentication Token
-  const getToken = async () => {
-    const { data, error } = await authClient.token();
-
-    if (error || !data?.token) {
-      throw new Error("Authentication token not found!");
-    }
-
-    return data.token;
-  };
 
   // Fetch Profile
   const fetchProfile = async () => {
@@ -1239,7 +1328,6 @@ function Profile() {
     </div>
   );
 }
-
 
 // ==============================
 // Customer Dashboard Layout
