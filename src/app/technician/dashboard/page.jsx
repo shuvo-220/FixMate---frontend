@@ -23,7 +23,10 @@ import {
   FiSearch,
   FiRefreshCw,
   FiPower,
+   FiCamera,
+  FiSave,
 } from "react-icons/fi";
+
 
 import { toast } from "sonner";
 import ProtectedRoute from "../../components/ProtectedRoute";
@@ -51,44 +54,193 @@ const categories = [
 
 const serviceModes = ["Home Visit", "Shop Drop-off"];
 
+
 function Overview({ setActiveMenu }) {
+  const [services, setServices] = useState([]);
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const getAuthToken = async () => {
+    const { data, error } = await authClient.token();
+
+    if (error || !data?.token) {
+      throw new Error("Authentication token not found. Please login again.");
+    }
+
+    return data.token;
+  };
+
+  const fetchOverviewData = async (showRefresh = false) => {
+    try {
+      if (showRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+
+      const token = await getAuthToken();
+
+      const headers = {
+        Authorization: `Bearer ${token}`,
+      };
+
+      const [servicesResponse, bookingsResponse] = await Promise.all([
+        api.get("/api/services/my-services", { headers }),
+        api.get("/api/bookings/technician-bookings", { headers }),
+      ]);
+
+      setServices(servicesResponse.data.services || []);
+      setBookings(bookingsResponse.data.bookings || []);
+    } catch (error) {
+      console.error("Technician Overview Error:", error);
+
+      toast.error(
+        error.response?.data?.message ||
+          error.message ||
+          "Failed to load dashboard information."
+      );
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchOverviewData();
+  }, []);
+
+  // Dashboard statistics
+  const totalServices = services.length;
+
+  const approvedServices = services.filter(
+    (service) => service.approvalStatus === "approved"
+  ).length;
+
+  const pendingRequests = bookings.filter(
+    (booking) => booking.status === "requested"
+  ).length;
+
+  const completedJobs = bookings.filter(
+    (booking) => booking.status === "completed"
+  ).length;
+
+  // Latest 5 bookings
+  const recentBookings = [...bookings]
+    .sort(
+      (a, b) =>
+        new Date(b.createdAt || 0).getTime() -
+        new Date(a.createdAt || 0).getTime()
+    )
+    .slice(0, 5);
+
   const stats = [
     {
       title: "Total Services",
-      value: "--",
+      value: totalServices,
       icon: FiTool,
       color: "bg-blue-100 text-blue-600",
     },
     {
-      title: "Total Bookings",
-      value: "--",
-      icon: FiCalendar,
-      color: "bg-purple-100 text-purple-600",
-    },
-    {
-      title: "Completed Jobs",
-      value: "--",
+      title: "Approved Services",
+      value: approvedServices,
       icon: FiCheckCircle,
       color: "bg-green-100 text-green-600",
     },
     {
-      title: "Pending Jobs",
-      value: "--",
+      title: "Pending Requests",
+      value: pendingRequests,
       icon: FiClock,
       color: "bg-orange-100 text-orange-600",
     },
+    {
+      title: "Completed Jobs",
+      value: completedJobs,
+      icon: FiBriefcase,
+      color: "bg-purple-100 text-purple-600",
+    },
   ];
+
+  const formatDate = (date) => {
+    if (!date) return "Date unavailable";
+
+    const parsedDate = new Date(date);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return "Date unavailable";
+    }
+
+    return parsedDate.toLocaleDateString("en-BD", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  };
+
+  const getStatusStyle = (status) => {
+    switch (status?.toLowerCase()) {
+      case "accepted":
+        return "bg-blue-100 text-blue-700";
+
+      case "in-progress":
+        return "bg-purple-100 text-purple-700";
+
+      case "completed":
+        return "bg-green-100 text-green-700";
+
+      case "rejected":
+        return "bg-red-100 text-red-700";
+
+      case "cancelled":
+        return "bg-slate-100 text-slate-600";
+
+      default:
+        return "bg-amber-100 text-amber-700";
+    }
+  };
+
+  const formatStatus = (status) => {
+    if (!status) return "Requested";
+
+    return status
+      .split("-")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+  };
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center">
+        <span className="loading loading-spinner loading-lg text-blue-600"></span>
+      </div>
+    );
+  }
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">
-        Technician Dashboard
-      </h1>
+      {/* Header */}
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">
+            Technician Dashboard
+          </h1>
 
-      <p className="mt-2 text-slate-500">
-        Manage your repair services, customer bookings and work progress.
-      </p>
+          <p className="mt-2 text-slate-500">
+            Manage your repair services, customer bookings and work progress.
+          </p>
+        </div>
 
+        <button
+          onClick={() => fetchOverviewData(true)}
+          disabled={refreshing}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+        >
+          <FiRefreshCw className={refreshing ? "animate-spin" : ""} />
+          Refresh
+        </button>
+      </div>
+
+      {/* Statistics */}
       <div className="mt-8 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map((stat) => {
           const Icon = stat.icon;
@@ -114,6 +266,7 @@ function Overview({ setActiveMenu }) {
         })}
       </div>
 
+      {/* Quick Actions */}
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
         <div className="rounded-2xl bg-slate-900 p-7 text-white">
           <h2 className="text-xl font-bold">Grow Your Repair Business</h2>
@@ -148,20 +301,83 @@ function Overview({ setActiveMenu }) {
         </div>
       </div>
 
+      {/* Recent Bookings */}
       <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
-        <h2 className="text-lg font-bold text-slate-900">Recent Bookings</h2>
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">
+              Recent Bookings
+            </h2>
 
-        <div className="mt-6 rounded-xl bg-slate-50 p-8 text-center">
-          <FiCalendar className="mx-auto text-3xl text-slate-400" />
+            <p className="mt-1 text-sm text-slate-500">
+              Your latest customer repair requests.
+            </p>
+          </div>
 
-          <p className="mt-3 text-sm text-slate-500">
-            Your recent booking information will appear here.
-          </p>
+          <button
+            onClick={() => setActiveMenu("My Bookings")}
+            className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-700"
+          >
+            View All <FiArrowRight />
+          </button>
         </div>
+
+        {recentBookings.length === 0 ? (
+          <div className="mt-6 rounded-xl bg-slate-50 p-8 text-center">
+            <FiCalendar className="mx-auto text-3xl text-slate-400" />
+
+            <p className="mt-3 text-sm text-slate-500">
+              No bookings yet. Customer booking requests will appear here.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-6 space-y-3">
+            {recentBookings.map((booking) => (
+              <div
+                key={booking._id}
+                className="flex flex-col justify-between gap-4 rounded-xl border border-slate-100 p-4 sm:flex-row sm:items-center"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  {booking.serviceImage ? (
+                    <img
+                      src={booking.serviceImage}
+                      alt={booking.serviceTitle || "Service"}
+                      className="h-12 w-12 shrink-0 rounded-lg object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                      <FiTool size={21} />
+                    </div>
+                  )}
+
+                  <div className="min-w-0">
+                    <h3 className="truncate font-semibold text-slate-900">
+                      {booking.serviceTitle || "Repair Service"}
+                    </h3>
+
+                    <p className="mt-1 text-xs text-slate-500">
+                      {booking.customerName || "Customer"} ·{" "}
+                      {formatDate(booking.createdAt)}
+                    </p>
+                  </div>
+                </div>
+
+                <span
+                  className={`w-fit shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${getStatusStyle(
+                    booking.status
+                  )}`}
+                >
+                  {formatStatus(booking.status)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
 
 
 
@@ -2124,34 +2340,462 @@ function MyBookings() {
 
 
 
+
 function Profile() {
+  const { user } = useAuth();
+
+  const [profile, setProfile] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    area: "",
+    bio: "",
+    image: "",
+  });
+
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Get authentication token
+  const getAuthToken = async () => {
+    const { data, error } = await authClient.token();
+
+    if (error || !data?.token) {
+      throw new Error(
+        error?.message || "Authentication token could not be retrieved!"
+      );
+    }
+
+    return data.token;
+  };
+
+  // Fetch profile
+  const fetchProfile = async () => {
+    try {
+      setIsLoading(true);
+
+      const token = await getAuthToken();
+
+      const response = await api.get("/api/profile", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.data?.success || !response.data?.user) {
+        throw new Error("Unable to load profile!");
+      }
+
+      const userData = response.data.user;
+
+      setProfile({
+        name: userData.name || "",
+        email: userData.email || "",
+        phone: userData.phone || "",
+        area: userData.area || "",
+        bio: userData.bio || "",
+        image: userData.image || "",
+      });
+
+      setImagePreview(userData.image || "");
+    } catch (error) {
+      console.error("Fetch Profile Error:", error);
+
+      toast.error(
+        error.response?.data?.message ||
+        error.message ||
+        "Unable to load profile!"
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProfile();
+  }, []);
+
+  // Handle text inputs
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+
+    setProfile((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
+  // Handle profile image
+  const handleImageChange = (e) => {
+    const file = e.target.files?.[0];
+
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select a valid image!");
+      e.target.value = "";
+      return;
+    }
+
+    setImageFile(file);
+
+    const reader = new FileReader();
+
+    reader.onloadend = () => {
+      setImagePreview(reader.result);
+    };
+
+    reader.onerror = () => {
+      toast.error("Unable to read the selected image!");
+      setImageFile(null);
+      setImagePreview(profile.image || "");
+    };
+
+    reader.readAsDataURL(file);
+  };
+
+  // Save profile
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!profile.name.trim()) {
+      toast.error("Name is required!");
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+
+      const token = await getAuthToken();
+
+      const headers = {
+        Authorization: `Bearer ${token}`,
+      };
+
+      let imageUrl = profile.image;
+
+      // Upload new image only if selected
+      if (imageFile && imagePreview) {
+        const imageResponse = await api.post(
+          "/api/images/upload",
+          {
+            image: imagePreview,
+          },
+          {
+            headers,
+          }
+        );
+
+        imageUrl = imageResponse.data?.imageUrl;
+
+        if (!imageResponse.data?.success || !imageUrl) {
+          throw new Error("Profile image upload failed!");
+        }
+      }
+
+      // Update profile
+      const response = await api.patch(
+        "/api/profile",
+        {
+          name: profile.name.trim(),
+          phone: profile.phone.trim(),
+          area: profile.area.trim(),
+          bio: profile.bio.trim(),
+          image: imageUrl || "",
+        },
+        {
+          headers,
+        }
+      );
+
+      if (!response.data?.success) {
+        throw new Error(
+          response.data?.message || "Profile update failed!"
+        );
+      }
+
+      const updatedUser = response.data.user;
+
+      setProfile({
+        name: updatedUser.name || "",
+        email: updatedUser.email || "",
+        phone: updatedUser.phone || "",
+        area: updatedUser.area || "",
+        bio: updatedUser.bio || "",
+        image: updatedUser.image || "",
+      });
+
+      setImagePreview(updatedUser.image || "");
+      setImageFile(null);
+
+      const fileInput = document.getElementById("technician-profile-image");
+
+      if (fileInput) fileInput.value = "";
+
+      toast.success("Profile updated successfully!");
+
+    } catch (error) {
+      console.error("Update Profile Error:", error);
+
+      toast.error(
+        error.response?.data?.message ||
+        error.message ||
+        "Unable to update profile!"
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center">
+        <FiLoader className="animate-spin text-3xl text-blue-600" />
+      </div>
+    );
+  }
+
   return (
     <div>
-      <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">
-        My Profile
-      </h1>
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">
+          My Profile
+        </h1>
 
-      <p className="mt-2 text-slate-500">
-        Manage your technician account information.
-      </p>
-
-      <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-8">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-blue-100 text-blue-600">
-          <FiUser size={30} />
-        </div>
-
-        <h2 className="mt-5 text-lg font-bold text-slate-900">
-          Technician Information
-        </h2>
-
-        <p className="mt-2 text-sm text-slate-500">
-          Your name, email, phone, area and profile details will appear here
-          after API integration.
+        <p className="mt-2 text-slate-500">
+          Manage your technician account information.
         </p>
       </div>
+
+      <form
+        onSubmit={handleSubmit}
+        className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 sm:p-8"
+      >
+        {/* Profile Header */}
+        <div className="flex flex-col items-center gap-5 border-b border-slate-100 pb-8 sm:flex-row">
+          <div className="relative">
+            {imagePreview ? (
+              <img
+                src={imagePreview}
+                alt="Technician profile"
+                className="h-28 w-28 rounded-full border-4 border-blue-100 object-cover"
+              />
+            ) : (
+              <div className="flex h-28 w-28 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+                <FiUser size={45} />
+              </div>
+            )}
+
+            <label
+              htmlFor="technician-profile-image"
+              className="absolute bottom-0 right-0 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-2 border-white bg-blue-600 text-white shadow transition hover:bg-blue-700"
+            >
+              <FiCamera size={16} />
+            </label>
+
+            <input
+              id="technician-profile-image"
+              type="file"
+              accept="image/*"
+              onChange={handleImageChange}
+              className="hidden"
+            />
+          </div>
+
+          <div className="text-center sm:text-left">
+            <h2 className="text-xl font-bold text-slate-900">
+              {profile.name || user?.name || "Technician"}
+            </h2>
+
+            <p className="mt-1 text-sm text-slate-500">
+              {profile.email || user?.email}
+            </p>
+
+            <span className="mt-3 inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-600">
+              <FiTool size={13} />
+              Technician Account
+            </span>
+
+            <p className="mt-2 text-xs text-slate-400">
+              Click the camera icon to change your profile picture.
+            </p>
+          </div>
+        </div>
+
+        {/* Personal Information */}
+        <div className="mt-8">
+          <h3 className="mb-5 text-lg font-bold text-slate-800">
+            Personal Information
+          </h3>
+
+          <div className="grid gap-5 md:grid-cols-2">
+            {/* Name */}
+            <div>
+              <label
+                htmlFor="technician-name"
+                className="mb-2 block text-sm font-medium text-slate-700"
+              >
+                Full Name *
+              </label>
+
+              <input
+                id="technician-name"
+                type="text"
+                name="name"
+                value={profile.name}
+                onChange={handleChange}
+                maxLength={100}
+                required
+                placeholder="Enter your full name"
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+
+            {/* Email */}
+            <div>
+              <label
+                htmlFor="technician-email"
+                className="mb-2 block text-sm font-medium text-slate-700"
+              >
+                Email Address
+              </label>
+
+              <input
+                id="technician-email"
+                type="email"
+                value={profile.email}
+                readOnly
+                className="w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-500 outline-none"
+              />
+
+              <p className="mt-1 text-xs text-slate-400">
+                Email address cannot be changed here.
+              </p>
+            </div>
+
+            {/* Phone */}
+            <div>
+              <label
+                htmlFor="technician-phone"
+                className="mb-2 block text-sm font-medium text-slate-700"
+              >
+                Phone Number
+              </label>
+
+              <input
+                id="technician-phone"
+                type="tel"
+                name="phone"
+                value={profile.phone}
+                onChange={handleChange}
+                maxLength={20}
+                placeholder="Enter your phone number"
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+
+            {/* Area */}
+            <div>
+              <label
+                htmlFor="technician-area"
+                className="mb-2 block text-sm font-medium text-slate-700"
+              >
+                Service Area
+              </label>
+
+              <input
+                id="technician-area"
+                type="text"
+                name="area"
+                value={profile.area}
+                onChange={handleChange}
+                maxLength={100}
+                placeholder="e.g. Bashundhara, Dhaka"
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+
+            {/* Bio */}
+            <div className="md:col-span-2">
+              <label
+                htmlFor="technician-bio"
+                className="mb-2 block text-sm font-medium text-slate-700"
+              >
+                About Me
+              </label>
+
+              <textarea
+                id="technician-bio"
+                name="bio"
+                rows={5}
+                value={profile.bio}
+                onChange={handleChange}
+                maxLength={500}
+                placeholder="Tell customers about your repair experience, expertise and services..."
+                className="w-full resize-y rounded-xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+
+              <p className="mt-1 text-right text-xs text-slate-400">
+                {profile.bio.length}/500 characters
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Account Information */}
+        <div className="mt-8 rounded-xl bg-slate-50 p-5">
+          <h3 className="font-semibold text-slate-800">
+            Account Information
+          </h3>
+
+          <div className="mt-3 flex flex-wrap gap-3 text-sm">
+            <span className="rounded-lg bg-white px-3 py-2 text-slate-600">
+              Role: Technician
+            </span>
+
+            <span className="rounded-lg bg-white px-3 py-2 text-slate-600">
+              Email: {profile.email ? "Registered" : "Unavailable"}
+            </span>
+          </div>
+        </div>
+
+        {/* Save Button */}
+        <div className="mt-8 flex flex-col gap-3 border-t border-slate-100 pt-6 sm:flex-row sm:items-center">
+          <button
+            type="submit"
+            disabled={isSaving}
+            className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-7 py-3.5 font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isSaving ? (
+              <>
+                <FiLoader className="animate-spin" />
+                Saving Changes...
+              </>
+            ) : (
+              <>
+                <FiSave />
+                Save Changes
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={fetchProfile}
+            disabled={isSaving}
+            className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-6 py-3.5 font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+          >
+            <FiRefreshCw />
+            Reload Profile
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
+
 
 export default function TechnicianDashboard() {
   const [activeMenu, setActiveMenu] = useState("Dashboard");
